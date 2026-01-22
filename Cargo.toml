@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Avinash Madavan <avinash.madavan@gmail.com>"]
 description = "A Rust library for numerical optimization."
-license = "MIT"
 repository = "https://github.com/amadavan/copters"
 keywords = ["optimization", "linear-programming", "solver", "rust"]
 categories = ["science", "algorithms", "mathematics"]
@@ -12,8 +11,11 @@ license-file = "LICENSE"
 readme = "README.md"
 
 [dependencies]
+macros = { path = "macros" }
 dyn-clone = "1.0.20"
 faer = "0.23.2"
+snafu = "0.8.9"
 
 [dev-dependencies]
+loaders = { path = "loaders" }
 divan = "0.1.21"

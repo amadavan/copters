@@ -1,0 +1,12 @@
+[package]
+name = "macros"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "macros"
+path = "lib.rs"
+
+[dependencies]
+testing = { path = "testing" }
+options = { path = "options" }
