@@ -6,8 +6,6 @@ use faer::Index;
 use faer::traits::ComplexField;
 use faer::traits::num_traits::{Float, PrimInt};
 
-extern crate macros;
-
 pub trait ElementType: ComplexField + Float + Div<Output = Self> + PrimInt {}
 impl<T> ElementType for T where T: ComplexField + Float + Div<Output = T> + PrimInt {}
 
