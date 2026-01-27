@@ -655,6 +655,8 @@ mod tests {
     use faer::stats::DistributionExt;
     use faer::stats::prelude::{CwiseMatDistribution, StandardNormal};
 
+    use macros::{type_parameterized_test, value_parameterized_test};
+
     #[value_parameterized_test(values = [1usize, 2usize, 3usize])]
     fn test_simplicial_sparse_cholesky(_value: usize) {
         let solver = SimplicialSparseCholesky::new();
