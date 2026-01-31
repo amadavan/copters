@@ -210,7 +210,7 @@ checkchar(s) register char *s;
 checkchar(register char *s)
 #endif
 {
-	register c;
+	register int c;
 	register unsigned x;
 	register char *Tr = invtrtab;
 
@@ -299,14 +299,14 @@ blankfix(register char *s)
 	}
 
 #ifdef KR_headers
-exindx(s) char **s;
+int exindx(s) char **s;
 #else
-exindx(char **s)	/* expand supersparse index */
+int exindx(char **s)	/* expand supersparse index */
 #endif
 {
 	register char *Tr = invtrtab;
 	register char *z = *s;
-	register k, x;
+	register int k, x;
 
 	k = tr(*z++);
 	if (k >= 46) scream("exindx: Bad index in %s", z);
