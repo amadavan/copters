@@ -1,7 +1,5 @@
 #import "preamble.typ": scr, underset
 
-#set math.equation(numbering: "(1)")
-
 = Introduction
 
 Copters is a library for solving optimization problems, both linear and nonlinear. In this section, we will introduce the basic concepts of optimization theory that are relevant to the algorithms implemented in copters. We will discuss the formulation of optimization problems, as well as key concepts that will be used to describe the algorithms.

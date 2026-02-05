@@ -20,6 +20,28 @@
   page-paper: "us-letter",
 )
 
+// Reset equation counter at each section/subsection
+#show heading.where(level: 1): it => {
+  counter(math.equation).update(0)
+  it
+}
+#show heading.where(level: 2): it => {
+  counter(math.equation).update(0)
+  it
+}
+
+// Equation numbering: section.subsection.equation
+#set math.equation(numbering: n => {
+  let h = counter(heading).get()
+  if h.len() >= 2 {
+    [(#(h.at(0)).#(h.at(1)).#n)]
+  } else if h.len() >= 1 {
+    [(#(h.at(0)).#n)]
+  } else {
+    [(#n)]
+  }
+})
+
 // Frontmatter
 #maketitle(
   title: "copters: Algorithms Reference",
