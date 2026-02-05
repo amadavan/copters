@@ -63,7 +63,11 @@ This document is a description of the algorithms applied in copters. It is not i
 
 = Linear Programming algorithms
 
+#include "mpc.typ"
+
 = Nonlinear Programming algorithms
+
+#include "ipm.typ"
 
 = Stochastic Programming algorithms
 

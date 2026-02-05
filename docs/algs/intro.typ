@@ -17,24 +17,24 @@ where $f$ is the objective function, $bold(g)$ are the equality constraints, $bo
 
 TODO: Add discussion of duality.
 
-We associate dual variables $bold(y)$, $bold(z)$, and $bold(w)$ with the equality constraints, inequality constraints, and set membership constraints, respectively. The associated Lagrangian is given by:
+We associate dual variables $bold(y)$, $bold(z)$, and $bold(z)$ with the equality constraints, inequality constraints, and set membership constraints, respectively. The associated Lagrangian is given by:
 $
-  cal(L)(bold(x), bold(y), bold(z) >= 0, bold(w) in W) = f(bold(x)) - bold(y)^T bold(g)(bold(x)) - bold(z)^T bold(h)(bold(x)) - I_{cal(W)}(bold(x)).
+  cal(L)(bold(x), bold(y), bold(z) >= 0, bold(z) in W) = f(bold(x)) - bold(y)^T bold(g)(bold(x)) - bold(z)^T bold(h)(bold(x)) - I_{cal(W)}(bold(x)).
 $ <eq.lagrangian.general>
 The problem @eq.nlp.general can be equivalently written as:
 $
-  underset(min, bold(x)) underset(max, (bold(y), bold(z) >= 0, bold(w) in W)) cal(L)(bold(x), bold(y), bold(z), bold(w))
+  underset(min, bold(x)) underset(max, (bold(y), bold(z) >= 0, bold(z) in W)) cal(L)(bold(x), bold(y), bold(z))
 $ <eq.primal.general>
 where the maximization is over the dual variables.It can then be shown that we can construct the lower bound:
 $
-  underset(min, bold(x)) underset(max, (bold(y), bold(z) >= 0, bold(w) in cal(W))) cal(L)(bold(x), bold(y), bold(z), bold(w)) >= underset(max, (bold(y), bold(z) >= 0, bold(w) in cal(W))) underset(min, bold(x)) cal(L)(bold(x), bold(y), bold(z), bold(w)).
+  underset(min, bold(x)) underset(max, (bold(y), bold(z) >= 0, bold(z) in cal(W))) cal(L)(bold(x), bold(y), bold(z)) >= underset(max, (bold(y), bold(z) >= 0, bold(z) in cal(W))) underset(min, bold(x)) cal(L)(bold(x), bold(y), bold(z)).
 $ <eq.weak.duality.general>
 The lower bound is itself an optimization problem and is referred to as the dual problem. The weak duality theorem states that the optimal value of the primal problem is always greater than or equal to the optimal value of the dual problem. Under certain conditions, known as strong duality conditions, the two optimal values are equal.
 
 The dual problem can be equivalently written as:
 $
-  & underset(#[maximize], (bold(y), bold(z), bold(w))) & #h(2mm) & underset(min, bold(x)) cal(L)(bold(x), bold(y), bold(z), bold(w)), \
-  & #[subject to], & & bold(z) >= 0, bold(w) in cal(W). \
+  & underset(#[maximize], (bold(y), bold(z))) & #h(2mm) & underset(min, bold(x)) cal(L)(bold(x), bold(y), bold(z)), \
+  & #[subject to], & & bold(z) >= 0, bold(z) in cal(W). \
 $ <eq.dual.general>
 
 The dual problem can be used to derive necessary and sufficient conditions for optimality of the primal problem, known as the Karush-Kuhn-Tucker (KKT) conditions, which require satisfaction of the primal feasibility, dual feasibility, complementary slackness, and stationarity conditions. The complementary slackness condition ensures that for each inequality constraint, either the constraint is active (i.e., holds with equality) or the corresponding dual variable is zero. The KKT conditions for optimality of the primal and dual problems are given by:
@@ -55,50 +55,50 @@ The LP problems is a special case of the general optimization problem where the 
 $
   & underset(#[minimize], bold(x)) & #h(2mm) & bold(c)^T bold(x), \
   & #[subject to], & & bold(A) bold(x) = bold(b), & & : bold(y) \
-  & & & underline(bold(x)) <= bold(x) <= overline(bold(x)). & #h(2mm) & : underline(bold(w)), overline(bold(w))
+  & & & underline(bold(x)) <= bold(x) <= overline(bold(x)). & #h(2mm) & : underline(bold(z)), overline(bold(z))
 $ <eq.lp.primal>
 Here, we have associated dual variables, $y$, $underline(w)$, and $overline(w)$ with the linear constraint, lower bound, and upper bound, respectively. In this problem the objective function is now a linear function $f(bold(x)) = bold(c)^T bold(x)$, the equality constraints are given by $bold(g)(bold(x)) = bold(A) bold(x) - bold(b)$, and the inequality constraint is ignored. It can be shown that inequality constraints can easily be reformulated as equality constraints. The set membership constraint restricts $cal(X) = \[ underline(bold(x)), overline(bold(x)) \]$.
 
 We can then construct the associated Lagrangian
 $
-  scr(L)(bold(x), bold(y), underline(bold(w)) >= 0, overline(bold(w)) <= 0) = bold(c)^T bold(x) - bold(y)^T (bold(A) bold(x) - bold(b)) - underline(bold(w))^T (bold(x) - underline(bold(x))) - overline(bold(w))^T (bold(x) - overline(bold(x))).
+  scr(L)(bold(x), bold(y), underline(bold(z)) >= 0, overline(bold(z)) <= 0) = bold(c)^T bold(x) - bold(y)^T (bold(A) bold(x) - bold(b)) - underline(bold(z))^T (bold(x) - underline(bold(x))) - overline(bold(z))^T (bold(x) - overline(bold(x))).
 $ <eq.lp.lagrangian>
 
 The dual problem can then be constructed as:
 $
-  & underset(#[maximize], (bold(y), underline(bold(w)) >= 0, overline(bold(w)) <= 0)) & #h(2mm) & bold(b)^T bold(y) + underline(bold(w))^T underline(bold(x)) + overline(bold(w))^T overline(bold(x)), \
+  & underset(#[maximize], (bold(y), underline(bold(z)) >= 0, overline(bold(z)) <= 0)) & #h(2mm) & bold(b)^T bold(y) + underline(bold(z))^T underline(bold(x)) + overline(bold(z))^T overline(bold(x)), \
   & #[subject to], && A^T y + underline(z) - overline(z) = c, \
-  & && underline(bold(w)) >= 0, overline(bold(w)) <= 0. \
+  & && underline(bold(z)) >= 0, overline(bold(z)) <= 0. \
 $ <eq.lp.dual>
 
 Necessary and sufficient conditions for optimality of the primal and dual problems are given by the KKT conditions:
 $
   & bold(A) bold(x) = bold(b), \
-  & bold(c) - bold(A)^T bold(y) - underline(bold(w)) + overline(bold(w)) = 0, \
-  & underline(bold(w))^T (bold(x) - underline(bold(x))) = 0, overline(bold(w))^T (bold(x) - overline(bold(x))) = 0, \
-  & underline(bold(x)) <= bold(x) <= overline(bold(x)), underline(bold(w)) >= 0, overline(bold(w)) <= 0, \
+  & bold(c) - bold(A)^T bold(y) - underline(bold(z)) + overline(bold(z)) = 0, \
+  & underline(bold(z))^T (bold(x) - underline(bold(x))) = 0, overline(bold(z))^T (bold(x) - overline(bold(x))) = 0, \
+  & underline(bold(x)) <= bold(x) <= overline(bold(x)), underline(bold(z)) >= 0, overline(bold(z)) <= 0, \
 $ <eq.lp.kkt>
 where the first two equations are the primal and dual feasibility conditions, the next three equations are the complementary slackness conditions, and the last two equations are the dual feasibility conditions.
 
 == Nonlinear Programming (NLP)
 A general nonlinear programming (NLP) problem can be stated as:
 $
-  & underset(#[minimize], x) & #h(2mm) & f(x), \
-  & #[subject to],           &         & g(x) = 0,     && : y, \
-  &                          &         & x \in [l, u], && : underline(z), overline(z) \
+  & underset(#[minimize], bold(x)) & #h(2mm) & f(bold(x)), \
+  & #[subject to],           &         & bold(g)(x) = 0,     && : y, \
+  &                          &         & bold(x) in [bold(l), bold(u)], && : underline(bold(z)), overline(bold(z)) \
 $ <eq.nlp>
 where $f: R^n -> R$ is the objective function, $g: R^n -> R^m$ are the equality constraints, and $x in [l, u]$ represents the bound constraints on the decision variables. The associated Langrangian is given by:
 $
-  scr(L)(x, y, underline(z) >= 0, overline(z) <= 0) = f(x) - y^T g(x) - underline(z)^T (x - l) - overline(z)^T (x - u).
+  scr(L)(bold(x), bold(y), underline(bold(z)) >= 0, overline(bold(z)) <= 0) = f(bold(x)) - bold(g)(bold(x))^T bold(y) - underline(bold(z))^T (bold(x) - bold(l)) - overline(bold(z))^T (bold(x) - bold(u)).
 $ <eq.nlp.lagrangian>
 The KKT conditions for optimality are given by:
 $
-  & g(x) = 0, \
-  & nabla f(x) - nabla g(x)^T y - underline(z) + overline(z) = 0, \
-  & underline(z)^T (x - l) = 0, overline(z)^T (x - u) = 0, \
-  & x in [l, u], underline(z) >= 0, overline(z) <= 0, \
+  & nabla f(bold(x)) - nabla bold(g)(bold(x))^T y - underline(bold(z)) - overline(bold(z)) = 0, \
+  & bold(g)(bold(x)) = 0, \
+  & underline(bold(z))^T (bold(x) - l) = 0, overline(bold(z))^T (bold(x) - u) = 0, \
+  & bold(x) in [l, u], underline(bold(z)) >= 0, overline(bold(z)) <= 0, \
 $ <eq.nlp.kkt>
-where the first equation represents primal feasibility, the second equation represents dual feasibility, the next two equations represent complementary slackness, and the last three equations represent the bound constraints on the primal and dual variables.
+where the first equation represents dual feasibility (primal optimality), the second equation represents primal feasibility (dual optimality), the next two equations represent complementary slackness, and the last three equations represent the bound constraints on the primal and dual variables.
 
 The KKT conditions @eq.nlp.kkt are necessary for optimality under certain regularity conditions, such as the Mangasarian-Fromovitz constraint qualification (MFCQ). They are sufficient for optimality if the objective function $f$ is convex and the constraint functions $g$ are affine. They are sufficient for local optimality if $f$ and $g$ are twice continuously differentiable and the second-order sufficient conditions hold, given by the positive definiteness of the Lagrangian Hessian on the critical cone.
 
