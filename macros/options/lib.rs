@@ -1,7 +1,6 @@
 #![feature(map_try_insert)]
 #![allow(static_mut_refs)]
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use convert_case::{Case, Casing};
@@ -57,12 +56,15 @@ pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let generics = &item_struct.generics;
     let struct_token = &item_struct.struct_token;
 
-    let item_attr = struct_attrs.iter().filter(|attr| attr.path().is_ident("use_option"));
+    let item_attr = struct_attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("use_option"));
 
     let option_set: Vec<(LitStr, Type)> = item_attr
         .clone()
         .map(|attr| {
-            let name_values: Result<Punctuated<MetaNameValue, Token![,]>, _> = attr.parse_args_with(Punctuated::parse_terminated);
+            let name_values: Result<Punctuated<MetaNameValue, Token![,]>, _> =
+                attr.parse_args_with(Punctuated::parse_terminated);
             let mut name: Option<LitStr> = None;
             let mut type_: Option<Type> = None;
             if let Ok(name_values) = name_values {
@@ -75,18 +77,24 @@ pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     match option_name.to_string().as_str() {
                         "name" => {
                             // Handle name
-                            name = Some(syn::parse2::<LitStr>(nv.value.clone().into_token_stream()).expect("Failed to parse name"));
-                        },
+                            name = Some(
+                                syn::parse2::<LitStr>(nv.value.clone().into_token_stream())
+                                    .expect("Failed to parse name"),
+                            );
+                        }
                         "type_" => {
                             // Handle type
-                            type_ = Some(syn::parse2::<Type>(nv.value.clone().into_token_stream()).expect("Failed to parse type"));
-                        },
+                            type_ = Some(
+                                syn::parse2::<Type>(nv.value.clone().into_token_stream())
+                                    .expect("Failed to parse type"),
+                            );
+                        }
                         "default" => {
                             // Handle default value
-                        },
+                        }
                         "description" => {
                             // Handle description
-                        },
+                        }
                         _ => (),
                     }
                 }
@@ -102,7 +110,8 @@ pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let option_vals = option_set
         .iter()
         .map(|(name, type_)| {
-            let name_expr = syn::parse_str::<Expr>(&format!("{}", name.value())).expect("Failed to parse name as Expr");
+            let name_expr = syn::parse_str::<Expr>(&format!("{}", name.value()))
+                .expect("Failed to parse name as Expr");
             quote! {
                 #name_expr: #type_
             }
@@ -110,13 +119,17 @@ pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect::<Vec<_>>();
 
     let option_def = option_set.iter().map(|(name, type_)| {
-        let name_expr = syn::parse_str::<Expr>(&format!("{}", name.value())).expect("Failed to parse name as Expr");
+        let name_expr = syn::parse_str::<Expr>(&format!("{}", name.value()))
+            .expect("Failed to parse name as Expr");
         quote! {
             #name_expr: options.get_option::<#type_>(#name).expect("Option not found").clone()
         }
     });
 
-    let internal_options_ident = syn::Ident::new(&format!("{}InternalOptions", ident), proc_macro2::Span::call_site());
+    let internal_options_ident = syn::Ident::new(
+        &format!("{}InternalOptions", ident),
+        proc_macro2::Span::call_site(),
+    );
 
     let fields: Vec<proc_macro2::TokenStream> = item_struct
         .fields
@@ -163,7 +176,8 @@ struct OptionInput {
 }
 
 lazy_static! {
-    static ref OptionMap: Mutex<Option<HashMap<String, Box<(String, Option<String>, Option<String>)>>>> = Mutex::new(Some(Default::default()));
+    static ref OptionMap: Mutex<Option<std::collections::HashMap<String, Box<(String, Option<String>, Option<String>)>>>> =
+        Mutex::new(Some(Default::default()));
 }
 
 /// ## `use_option` Attribute Proc Macro
@@ -229,11 +243,20 @@ pub fn use_option(attr: TokenStream, item: TokenStream) -> TokenStream {
             )
             .map_err(|mut err| {
                 if err.value.0 != err.entry.get().0 {
-                    panic!("Option '{}' is already defined with a different type", name.value());
+                    panic!(
+                        "Option '{}' is already defined with a different type",
+                        name.value()
+                    );
                 }
 
-                if err.entry.get().1.is_some() && default.is_some() && err.entry.get().1.as_ref().unwrap() != &default.to_token_stream().to_string() {
-                    panic!("Option '{}' is already defined with a different default value", name.value());
+                if err.entry.get().1.is_some()
+                    && default.is_some()
+                    && err.entry.get().1.as_ref().unwrap() != &default.to_token_stream().to_string()
+                {
+                    panic!(
+                        "Option '{}' is already defined with a different default value",
+                        name.value()
+                    );
                 }
 
                 *err.entry.get_mut() = Box::new((
@@ -249,10 +272,16 @@ pub fn use_option(attr: TokenStream, item: TokenStream) -> TokenStream {
             .unwrap()
             .as_mut()
             .unwrap()
-            .try_insert(name.value(), Box::new((type_ident.to_token_stream().to_string(), None, None)))
+            .try_insert(
+                name.value(),
+                Box::new((type_ident.to_token_stream().to_string(), None, None)),
+            )
             .map_err(|err| {
                 if err.value.0 != err.entry.get().0 {
-                    panic!("Option '{}' is already defined with a different type", name.value());
+                    panic!(
+                        "Option '{}' is already defined with a different type",
+                        name.value()
+                    );
                 }
             })
             .ok();
@@ -308,7 +337,8 @@ struct OptionBuilder {
 /// keep your documentation accurate and complete.
 #[proc_macro]
 pub fn build_options(tokens: TokenStream) -> TokenStream {
-    let OptionBuilder { registry_name } = deluxe::parse::<OptionBuilder>(tokens).expect("Failed to parse OptionBuilder");
+    let OptionBuilder { registry_name } =
+        deluxe::parse::<OptionBuilder>(tokens).expect("Failed to parse OptionBuilder");
 
     let option_map_guard = OptionMap.lock().unwrap();
     let option_map = option_map_guard.as_ref().unwrap();
@@ -339,8 +369,18 @@ pub fn build_options(tokens: TokenStream) -> TokenStream {
                 .unwrap_or(&"Default::default()".to_string())
                 .to_string()
                 .replace("\"", "");
-            let description = description.as_ref().unwrap_or(&"".to_string()).to_string().replace("\"", "");
-            format!("| {} | [`{}`] | {} | {} |", key, type_str.replace(" :: ", "::"), default, description)
+            let description = description
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .to_string()
+                .replace("\"", "");
+            format!(
+                "| {} | [`{}`] | {} | {} |",
+                key,
+                type_str.replace(" :: ", "::"),
+                default,
+                description
+            )
         })
         .collect();
 
@@ -353,13 +393,16 @@ pub fn build_options(tokens: TokenStream) -> TokenStream {
         doc_string.push_str(&format!("{}\n", field));
     }
 
-    let registry_name = registry_name.to_token_stream().to_string().replace("\"", "");
+    let registry_name = registry_name
+        .to_token_stream()
+        .to_string()
+        .replace("\"", "");
     let registry_ident = syn::Ident::new(&registry_name, proc_macro2::Span::call_site());
 
     let expanded = quote! {
         #[doc = #doc_string]
-        static #registry_ident : LazyLock<HashMap<String, Box<dyn crate::OptionTrait>>> = LazyLock::new(|| {
-            let mut map : HashMap::<String, Box<dyn crate::OptionTrait>> = HashMap::new();
+        static #registry_ident : std::sync::LazyLock<std::collections::HashMap<String, Box<dyn crate::OptionTrait>>> = std::sync::LazyLock::new(|| {
+            let mut map : std::collections::HashMap::<String, Box<dyn crate::OptionTrait>> = std::collections::HashMap::new();
             map.extend([#(#options_fields),*]);
             map
         });
@@ -367,7 +410,7 @@ pub fn build_options(tokens: TokenStream) -> TokenStream {
         #[doc = #doc_string]
         #[derive(Clone)]
         pub struct Options {
-            map: HashMap<String, Box<dyn crate::OptionTrait>>,
+            map: std::collections::HashMap<String, Box<dyn crate::OptionTrait>>,
         }
 
         impl Options {
@@ -473,7 +516,9 @@ pub fn build_option_enum(token: TokenStream) -> TokenStream {
     let variant_names: Vec<_> = variants
         .elems
         .iter()
-        .map(|v| syn::parse_str::<Ident>(&v.to_token_stream().to_string().to_case(Case::Snake)).unwrap())
+        .map(|v| {
+            syn::parse_str::<Ident>(&v.to_token_stream().to_string().to_case(Case::Snake)).unwrap()
+        })
         .collect();
 
     let argument_types: Vec<_> = new_arguments
@@ -492,7 +537,10 @@ pub fn build_option_enum(token: TokenStream) -> TokenStream {
         #(#argument_idents),*
     );
 
-    let doc_header = quote!(#doc_header).to_string().trim_matches('"').to_string()
+    let doc_header = quote!(#doc_header)
+        .to_string()
+        .trim_matches('"')
+        .to_string()
         + " The ```Default::default``` values for the enum is ```"
         + &variant_names[0].to_string()
         + "```.";
