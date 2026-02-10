@@ -33,7 +33,6 @@
 //! let b = faer::Mat::from_fn(n, 1, |i, _| i as f64);
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
-
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::linalg::cholesky::ldlt::factor::LdltRegularization;
 use faer::perm::{Perm, PermRef};
@@ -47,12 +46,9 @@ use faer::sparse::linalg::cholesky::supernodal::{
 };
 use faer::sparse::{SparseColMat, SparseColMatRef, SymbolicSparseColMat};
 use faer::{Mat, MatMut, MatRef};
-use snafu::prelude::*;
+use problemo::{Problem, ProblemResult};
 
-use crate::linalg::solver::{
-    CholeskyFactorizationSnafu, MemoryAllocationSnafu, MemoryReservationSnafu, Solver, SolverError,
-    SymbolicFactorizationSnafu, UninitializedSnafu,
-};
+use crate::linalg::solver::{LinearSolverError, Solver};
 use crate::{E, I};
 
 /// Trait for symmetric linear solvers supporting matrix analysis, factorization, and solving linear
@@ -94,7 +90,7 @@ impl Solver for SimplicialSparseCholesky {
     /// Performs symbolic analysis of the input matrix, computes fill-reducing permutation,
     /// and prepares internal state for factorization.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         let nnz = mat.compute_nnz();
         let dim = mat.ncols();
         let mat_symbolic = mat.symbolic();
@@ -104,15 +100,15 @@ impl Solver for SimplicialSparseCholesky {
             let mut perm = Vec::new();
             let mut perm_inv = Vec::new();
             perm.try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm_inv
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm.resize(dim, 0usize);
             perm_inv.resize(dim, 0usize);
 
             let mut mem = MemBuffer::try_new(amd::order_scratch::<usize>(dim, nnz))
-                .context(MemoryAllocationSnafu {})?;
+                .via(LinearSolverError::MemoryAllocation)?;
             amd::order(
                 &mut perm,
                 &mut perm_inv,
@@ -120,9 +116,7 @@ impl Solver for SimplicialSparseCholesky {
                 amd::Control::default(),
                 MemStack::new(&mut mem),
             )
-            .context(SymbolicFactorizationSnafu {
-                message: "Failed to compute AMD ordering".to_string(),
-            })?;
+            .via(LinearSolverError::SymbolicFactorization)?;
 
             (perm, perm_inv)
         };
@@ -140,18 +134,18 @@ impl Solver for SimplicialSparseCholesky {
                 simplicial::prefactorize_symbolic_cholesky_scratch::<usize>(dim, nnz),
                 simplicial::factorize_simplicial_symbolic_cholesky_scratch::<usize>(dim),
             ]))
-            .context(MemoryAllocationSnafu {})?;
+            .via(LinearSolverError::MemoryAllocation)?;
             let stack = MemStack::new(&mut mem);
 
             let mut etree = Vec::new();
             let mut col_counts = Vec::new();
             etree
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             etree.resize(dim, 0isize);
             col_counts
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             col_counts.resize(dim, 0usize);
 
             simplicial::prefactorize_symbolic_cholesky(
@@ -168,9 +162,7 @@ impl Solver for SimplicialSparseCholesky {
                 &col_counts,
                 stack,
             )
-            .context(SymbolicFactorizationSnafu {
-                message: "Failed to factorize symbolic Cholesky".to_string(),
-            })?
+            .via(LinearSolverError::SymbolicFactorization)?
         });
 
         // Implementation of analysis
@@ -179,16 +171,17 @@ impl Solver for SimplicialSparseCholesky {
 
     /// Performs numeric factorization of the matrix after symbolic analysis.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
-        let symbolic = self.symbolic.as_ref().context(UninitializedSnafu {
-            message: "Symbolic factorization",
-        })?;
+    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
+        let symbolic = self
+            .symbolic
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
         let dim = mat.ncols();
 
         self.L_values = Vec::new();
         self.L_values
             .try_reserve_exact(symbolic.len_val())
-            .context(MemoryReservationSnafu {})?;
+            .via(LinearSolverError::MemoryReservation)?;
         self.L_values.resize(symbolic.len_val(), 0.0f64);
 
         let mat_upper = get_mat_upper(mat, self.perm.rb().unwrap().as_ref())?;
@@ -200,7 +193,7 @@ impl Solver for SimplicialSparseCholesky {
             // faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
             // symbolic.solve_in_place_scratch::<f64>(dim),
         ]))
-        .context(MemoryAllocationSnafu {})?;
+        .via(LinearSolverError::MemoryAllocation)?;
 
         let stack = MemStack::new(&mut mem);
 
@@ -211,9 +204,7 @@ impl Solver for SimplicialSparseCholesky {
             symbolic,
             stack,
         )
-        .context(CholeskyFactorizationSnafu {
-            message: "Failed to factorize numeric Cholesky",
-        })?;
+        .via(LinearSolverError::NumericFactorization)?;
         // TODO: consider LdltInfo and LdltErrors
 
         // SAFETY: We extend the lifetime to 'static because symbolic and L_values are owned by self and
@@ -234,23 +225,20 @@ impl Solver for SimplicialSparseCholesky {
 
     /// Refactorizes the matrix, typically used when the matrix structure remains but values change.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         // Implementation of refactorization
         self.factorize(mat)
     }
 
     /// Solves the linear system in place for the given right-hand side vector `b`.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), SolverError> {
-        let symbolic = self.symbolic.as_ref().context(UninitializedSnafu {
-            message: "Symbolic factorization",
-        })?;
-        let perm = self.perm.as_ref().context(UninitializedSnafu {
-            message: "Permutation",
-        })?;
-        let ldlt = self.ldlt.as_ref().context(UninitializedSnafu {
-            message: "Numerical factorization",
-        })?;
+    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+        let symbolic = self
+            .symbolic
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
+        let perm = self.perm.as_ref().ok_or(LinearSolverError::Uninitialized)?;
+        let ldlt = self.ldlt.as_ref().ok_or(LinearSolverError::Uninitialized)?;
 
         let dim = symbolic.ncols();
 
@@ -259,7 +247,7 @@ impl Solver for SimplicialSparseCholesky {
             faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
             symbolic.solve_in_place_scratch::<f64>(dim),
         ]))
-        .context(MemoryAllocationSnafu {})?;
+        .via(LinearSolverError::MemoryAllocation)?;
         let stack = MemStack::new(&mut mem);
 
         faer::perm::permute_rows_in_place(sol.rb_mut(), perm.as_ref(), stack);
@@ -269,7 +257,7 @@ impl Solver for SimplicialSparseCholesky {
         Ok(())
     }
 
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, SolverError> {
+    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
         let mut sol = Mat::zeros(b.nrows(), b.ncols());
         sol.copy_from(b);
         self.solve_in_place(&mut sol.as_mut())?;
@@ -334,7 +322,7 @@ impl Solver for SupernodalSparseCholesky {
     /// Performs symbolic analysis of the input matrix, computes fill-reducing permutation,
     /// and prepares internal state for factorization.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         let nnz = mat.compute_nnz();
         let dim = mat.ncols();
         let mat_symbolic = mat.symbolic();
@@ -344,15 +332,15 @@ impl Solver for SupernodalSparseCholesky {
             let mut perm = Vec::new();
             let mut perm_inv = Vec::new();
             perm.try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm_inv
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm.resize(dim, 0usize);
             perm_inv.resize(dim, 0usize);
 
             let mut mem = MemBuffer::try_new(amd::order_scratch::<usize>(dim, nnz))
-                .context(MemoryAllocationSnafu {})?;
+                .via(LinearSolverError::MemoryAllocation)?;
             amd::order(
                 &mut perm,
                 &mut perm_inv,
@@ -360,9 +348,7 @@ impl Solver for SupernodalSparseCholesky {
                 amd::Control::default(),
                 MemStack::new(&mut mem),
             )
-            .context(SymbolicFactorizationSnafu {
-                message: "Failed to compute AMD ordering".to_string(),
-            })?;
+            .via(LinearSolverError::SymbolicFactorization)?;
 
             (perm, perm_inv)
         };
@@ -380,18 +366,18 @@ impl Solver for SupernodalSparseCholesky {
                 simplicial::prefactorize_symbolic_cholesky_scratch::<usize>(dim, nnz),
                 supernodal::factorize_supernodal_symbolic_cholesky_scratch::<usize>(dim),
             ]))
-            .context(MemoryAllocationSnafu {})?;
+            .via(LinearSolverError::MemoryAllocation)?;
             let stack = MemStack::new(&mut mem);
 
             let mut etree = Vec::new();
             let mut col_counts = Vec::new();
             etree
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             etree.resize(dim, 0isize);
             col_counts
                 .try_reserve_exact(dim)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             col_counts.resize(dim, 0usize);
 
             simplicial::prefactorize_symbolic_cholesky(
@@ -409,9 +395,7 @@ impl Solver for SupernodalSparseCholesky {
                 stack,
                 faer::sparse::linalg::SymbolicSupernodalParams { relax: None },
             )
-            .context(SymbolicFactorizationSnafu {
-                message: "Failed to factorize symbolic Cholesky".to_string(),
-            })?
+            .via(LinearSolverError::SymbolicFactorization)?
         });
 
         // Implementation of analysis
@@ -420,16 +404,17 @@ impl Solver for SupernodalSparseCholesky {
 
     /// Performs numeric factorization of the matrix after symbolic analysis.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
-        let symbolic = self.symbolic.as_ref().context(UninitializedSnafu {
-            message: "Symbolic analysis",
-        })?;
+    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
+        let symbolic = self
+            .symbolic
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
         let _dim = mat.ncols();
 
         self.L_values = Vec::new();
         self.L_values
             .try_reserve_exact(symbolic.len_val())
-            .context(MemoryReservationSnafu {})?;
+            .via(LinearSolverError::MemoryReservation)?;
         self.L_values.resize(symbolic.len_val(), 0.0f64);
 
         let mat_lower = get_mat_lower(mat, self.perm.rb().unwrap().as_ref())?;
@@ -445,7 +430,7 @@ impl Solver for SupernodalSparseCholesky {
             // faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
             // symbolic.solve_in_place_scratch::<f64>(dim, faer::Par::Seq),
         ]))
-        .context(MemoryAllocationSnafu {})?;
+        .via(LinearSolverError::MemoryAllocation)?;
 
         let stack = MemStack::new(&mut mem);
 
@@ -458,9 +443,7 @@ impl Solver for SupernodalSparseCholesky {
             stack,
             Default::default(),
         )
-        .context(CholeskyFactorizationSnafu {
-            message: "Failed to factorize numeric Cholesky",
-        })?;
+        .via(LinearSolverError::NumericFactorization)?;
         // TODO: consider LdltInfo and LdltErrors
 
         // SAFETY: We extend the lifetime to 'static because symbolic and L_values are owned by self and
@@ -481,23 +464,20 @@ impl Solver for SupernodalSparseCholesky {
 
     /// Refactorizes the matrix, typically used when the matrix structure remains but values change.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         // Implementation of refactorization
         self.factorize(mat)
     }
 
     /// Solves the linear system in place for the given right-hand side vector `b`.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), SolverError> {
-        let symbolic = self.symbolic.as_ref().context(UninitializedSnafu {
-            message: "Symbolic factorization",
-        })?;
-        let perm = self.perm.as_ref().context(UninitializedSnafu {
-            message: "Permutation",
-        })?;
-        let ldlt = self.ldlt.as_ref().context(UninitializedSnafu {
-            message: "Numeric factorization",
-        })?;
+    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+        let symbolic = self
+            .symbolic
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
+        let perm = self.perm.as_ref().ok_or(LinearSolverError::Uninitialized)?;
+        let ldlt = self.ldlt.as_ref().ok_or(LinearSolverError::Uninitialized)?;
 
         let dim = symbolic.ncols();
 
@@ -510,7 +490,7 @@ impl Solver for SupernodalSparseCholesky {
             faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
             symbolic.solve_in_place_scratch::<f64>(dim, faer::Par::Seq),
         ]))
-        .context(MemoryAllocationSnafu {})?;
+        .via(LinearSolverError::MemoryAllocation)?;
         let stack = MemStack::new(&mut mem);
 
         faer::perm::permute_rows_in_place(sol.rb_mut(), perm.as_ref(), stack);
@@ -520,7 +500,7 @@ impl Solver for SupernodalSparseCholesky {
         Ok(())
     }
 
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, SolverError> {
+    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
         let mut sol = Mat::zeros(b.nrows(), b.ncols());
         sol.copy_from(b);
         self.solve_in_place(&mut sol.as_mut())?;
@@ -556,7 +536,7 @@ impl SupernodalSparseCholesky {
 fn get_mat_lower(
     mat: SparseColMatRef<I, E>,
     perm: PermRef<I>,
-) -> Result<SparseColMat<I, E>, SolverError> {
+) -> Result<SparseColMat<I, E>, Problem> {
     let dim = mat.ncols();
     let nnz = mat.compute_nnz();
 
@@ -566,21 +546,21 @@ fn get_mat_lower(
 
     mat_col_ptrs
         .try_reserve_exact(dim + 1)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_col_ptrs.resize(dim + 1, 0usize);
     mat_row_indices
         .try_reserve_exact(nnz)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_row_indices.resize(nnz, 0usize);
     mat_values
         .try_reserve_exact(nnz)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_values.resize(nnz, 0.0f64);
 
     let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<usize>(
         dim,
     ))
-    .context(MemoryAllocationSnafu {})?;
+    .via(LinearSolverError::MemoryAllocation)?;
     faer::sparse::utils::permute_self_adjoint_to_unsorted(
         &mut mat_values,
         &mut mat_col_ptrs,
@@ -603,7 +583,7 @@ fn get_mat_lower(
 fn get_mat_upper(
     mat: SparseColMatRef<I, E>,
     perm: PermRef<I>,
-) -> Result<SparseColMat<I, E>, SolverError> {
+) -> Result<SparseColMat<I, E>, Problem> {
     let dim = mat.ncols();
     let nnz = mat.compute_nnz();
 
@@ -613,21 +593,21 @@ fn get_mat_upper(
 
     mat_col_ptrs
         .try_reserve_exact(dim + 1)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_col_ptrs.resize(dim + 1, 0usize);
     mat_row_indices
         .try_reserve_exact(nnz)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_row_indices.resize(nnz, 0usize);
     mat_values
         .try_reserve_exact(nnz)
-        .context(MemoryReservationSnafu {})?;
+        .via(LinearSolverError::MemoryReservation)?;
     mat_values.resize(nnz, 0.0f64);
 
     let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<usize>(
         dim,
     ))
-    .context(MemoryAllocationSnafu {})?;
+    .via(LinearSolverError::MemoryAllocation)?;
     faer::sparse::utils::permute_self_adjoint_to_unsorted(
         &mut mat_values,
         &mut mat_col_ptrs,
