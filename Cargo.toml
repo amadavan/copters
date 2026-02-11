@@ -28,3 +28,7 @@ nix = { version = "0.30", default-features = false, features = ["signal"]}
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_IO", "Win32_System_Console"] }
+
+[[bench]]
+name = "bench"
+harness = false
