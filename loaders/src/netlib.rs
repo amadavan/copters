@@ -39,20 +39,22 @@
 /// let model = loader.get_lp("afiro").unwrap();
 /// ```
 use libc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use tempfile::NamedTempFile;
 
 unsafe extern "C" {
-    static mut stdout: *mut libc::FILE;
-    pub fn emps_init(progname: *mut libc::c_char, argv: *mut *mut libc::c_char);
-    // fn process(file: *mut libc::FILE, infile1: *mut libc::c_char);
+    pub fn set_emps_output(f: *mut libc::FILE);
+    pub fn emps_init();
     pub fn process_from_filename(filename: *mut libc::c_char);
 }
+
+/// The C code (emps.c) uses global variables and is not reentrant.
+static EMPS_LOCK: Mutex<()> = Mutex::new(());
 
 pub static URL: &str = "https://netlib.org/lp/data/";
 
@@ -73,36 +75,24 @@ pub static NETLIB_CASES: LazyLock<HashSet<String>> = LazyLock::new(|| {
     HashSet::from_iter(cases.iter().map(|s| s.to_string()))
 });
 
-pub struct NetlibLoader {
-    cache_dir: String,
-    progname: CString,
-    argv: [*mut libc::c_char; 2],
-}
+pub struct NetlibLoader;
 
 impl NetlibLoader {
-    pub fn new() -> Self {
-        let progname = CString::new("emps").unwrap();
-        let argv: [*mut libc::c_char; 2] = [progname.as_ptr() as *mut _, std::ptr::null_mut()];
-
-        let cache_dir = format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"));
-        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
-
-        NetlibLoader {
-            cache_dir,
-            progname,
-            argv,
-        }
+    fn get_cache_dir() -> String {
+        format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"))
     }
 
-    pub fn download_compressed(&self, name: &str) {
-        std::fs::create_dir_all(&self.cache_dir).expect("Failed to create cache directory");
+    pub fn download_compressed(name: &str) {
+        let cache_dir = NetlibLoader::get_cache_dir();
+
+        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
         if !NETLIB_CASES.contains(name) {
             panic!("Unknown Netlib case: {}", name);
         }
 
         // Download file if it does not exist
-        if !Path::new(&format!("{}/{}.emps", self.cache_dir, name)).exists() {
+        if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
             let url = format!("{}{}", URL, name);
             let response = reqwest::blocking::get(&url).expect("Failed to download file");
             assert!(
@@ -113,7 +103,7 @@ impl NetlibLoader {
             );
             let bytes = response.bytes().expect("Failed to read response bytes");
 
-            let file_name = format!("{}/{}.emps", self.cache_dir, name);
+            let file_name = format!("{}/{}.emps", &cache_dir, name);
 
             let mut file = OpenOptions::new()
                 .write(true)
@@ -125,49 +115,41 @@ impl NetlibLoader {
         }
     }
 
-    fn decompress_mps(&self, emps_path: &str) -> Result<NamedTempFile, std::io::Error> {
+    fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, std::io::Error> {
         assert!(
             std::path::Path::new(&emps_path).exists(),
             "File does not exist!"
         );
 
-        let c_path = CString::new(emps_path).unwrap();
-        let mode = CString::new("r").unwrap(); // open for reading
-
-        let file_ptr = unsafe { libc::fopen(c_path.as_ptr(), mode.as_ptr()) };
-        assert!(!file_ptr.is_null(), "Failed to open file");
-
         let infile1 = CString::new(emps_path).unwrap();
         let infile1_ptr = infile1.into_raw();
 
-        // let progname = CString::new("emps").unwrap();
-        // let mut argv: [*mut libc::c_char; 2] = [progname.as_ptr() as *mut _, std::ptr::null_mut()];
-
         let tmpfile = NamedTempFile::new().expect("Failed to create temp file");
-        let tmpfile_path = tmpfile.path().to_owned();
-        let out_path = CString::new(tmpfile_path.to_str().unwrap()).unwrap();
+        let out_path = CString::new(tmpfile.path().to_str().unwrap()).unwrap();
         let out_mode = CString::new("w").unwrap();
 
+        // Serialize access — the C code uses global state and is not reentrant.
+        let _guard = EMPS_LOCK.lock().unwrap();
+
         unsafe {
-            emps_init(
-                self.progname.as_ptr() as *mut _,
-                self.argv.clone().as_mut_ptr(),
-            );
-            // Redirect C stdout to the file
-            let f = libc::freopen(out_path.as_ptr(), out_mode.as_ptr(), stdout);
-            assert!(!f.is_null(), "Failed to freopen stdout");
+            let out_file = libc::fopen(out_path.as_ptr(), out_mode.as_ptr());
+            assert!(!out_file.is_null(), "Failed to fopen output file");
+
+            set_emps_output(out_file);
+            emps_init();
             process_from_filename(infile1_ptr);
-            // process(file_ptr, infile1_ptr);
+
+            libc::fflush(out_file);
+            libc::fclose(out_file);
         }
 
         Ok(tmpfile)
     }
 
-    pub fn get_lp(&self, name: &str) -> Result<mps::model::Model<f32>, String> {
-        self.download_compressed(name);
-        let emps_path = format!("{}/{}.emps", self.cache_dir, name);
-        let mps_file = self
-            .decompress_mps(&emps_path)
+    pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, String> {
+        NetlibLoader::download_compressed(name);
+        let emps_path = format!("{}/{}.emps", NetlibLoader::get_cache_dir(), name);
+        let mps_file = NetlibLoader::decompress_mps(&emps_path)
             .map_err(|e| format!("Unable to decompress emps file: {}", e))?;
 
         let mut contents = String::new();
@@ -282,8 +264,110 @@ mod tests {
           "finnis"
       ]
     )]
+    #[allow(non_snake_case)]
     fn test_download_compressed(name: &str) {
-        let loader = NetlibLoader::new();
-        loader.download_compressed(name);
+        NetlibLoader::download_compressed(name);
+    }
+
+    #[value_parameterized_test(
+      values = [
+          "israel",
+          "scagr7",
+          "ship08s",
+          "vtp_base",
+          "bnl1",
+          "pilot",
+          "standgub",
+          "scsd1",
+          "sc205",
+          "adlittle",
+          "ship04s",
+          "scfxm2",
+          "agg",
+          "agg3",
+          "scorpion",
+          "shell",
+          "greenbeb",
+          "fit2d",
+          "bandm",
+          "share2b",
+          "sc105",
+          "nesm",
+          "boeing2",
+          "sc50b",
+          "scfxm3",
+          "stair",
+          "stocfor1",
+          "maros",
+          "bore3d",
+          "scsd8",
+          "stocfor2",
+          "25fv47",
+          "sctap1",
+          "ship12l",
+          "beaconfd",
+          "modszk1",
+          "cycle",
+          "ship12s",
+          "forplan",
+          "kb2",
+          "recipe",
+          "fit1d",
+          "e226",
+          "etamacro",
+          "perold",
+          "fffff800",
+          "sierra",
+          "maros_r7",
+          "tuff",
+          "pilotnov",
+          "dfl001",
+          "pilot87",
+          "pilot_we",
+          "capri",
+          "pilot4",
+          "wood1p",
+          "woodw",
+          "ship04l",
+          "grow15",
+          "degen3",
+          "fit1p",
+          "standata",
+          "greenbea",
+          "czprob",
+          "scfxm1",
+          "sc50a",
+          "agg2",
+          "standmps",
+          "share1b",
+          "afiro",
+          "seba",
+          "degen2",
+          "scagr25",
+          "scrs8",
+          "ganges",
+          "brandy",
+          "scsd6",
+          "boeing1",
+          "grow7",
+          "bnl2",
+          "sctap3",
+          "pilot_ja",
+          "blend",
+          "sctap2",
+          "d6cube",
+          "grow22",
+          "gfrd_pnc",
+          "ship08l",
+          "d2q06c",
+          "lotfi",
+          "finnis"
+      ]
+    )]
+    #[allow(non_snake_case)]
+    fn test_get_lp(name: &str) {
+        let model = NetlibLoader::get_lp(name).unwrap();
+        // assert!(!model.rows.is_empty(), "Model has no rows");
+        // assert!(!model.columns.is_empty(), "Model has no columns");
     }
 }

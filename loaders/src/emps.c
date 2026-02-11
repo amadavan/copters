@@ -57,13 +57,23 @@ long nline, nrow;
 char ***xargv;
 
 #ifdef BUILDING_FOR_RUST
-void emps_init(char *progname, char **argv) {
+static FILE *emps_output = NULL;
+void set_emps_output(FILE *f) { emps_output = f; }
+/* Redirect all printf calls in this file to write to emps_output instead of
+ * stdout, so the Rust caller doesn't need to touch the global stdout. */
+#define printf(...) fprintf(emps_output, __VA_ARGS__)
+
+static char *emps_argv_data[] = {"emps", NULL};
+static char **emps_argv_ptr = emps_argv_data;
+
+void emps_init(void) {
     char *s, *se;
     for(s = invtrtab, se = s + sizeof(invtrtab); s < se; s++) *s = 92;
     for(s = se = trtab; *s; s++) invtrtab[*s] = s - se;
     *chkbuf = ' ';
     progname = "emps";
-    xargv = &argv;
+    emps_argv_ptr = emps_argv_data;
+    xargv = &emps_argv_ptr;
 }
 #endif
 
