@@ -16,6 +16,24 @@ where
     out
 }
 
+pub(crate) fn cwise_multiply_positive<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
+where
+    E: Mul<Output = E> + PartialOrd,
+{
+    let mut out = Col::<E>::zeros(x1.nrows());
+
+    zip!(x1, x2, out.as_mut()).for_each(|unzip!(x1, x2, out)| {
+        let product = *x1 * *x2;
+        *out = if product < E::from(0.) {
+            E::from(0.)
+        } else {
+            product
+        }
+    });
+
+    out
+}
+
 pub(crate) fn cwise_quotient<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
 where
     E: Div<Output = E>,
@@ -23,6 +41,17 @@ where
     let mut out = Col::<E>::zeros(x1.nrows());
 
     zip!(x1, x2, out.as_mut()).for_each(|unzip!(x1, x2, out)| *out = *x1 / *x2);
+
+    out
+}
+
+pub(crate) fn cwise_inverse<'a>(x: ColRef<'a, E>) -> Col<E>
+where
+    E: Div<Output = E>,
+{
+    let mut out = Col::<E>::zeros(x.nrows());
+
+    zip!(x, out.as_mut()).for_each(|unzip!(x, out)| *out = E::from(1.) / *x);
 
     out
 }
