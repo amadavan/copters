@@ -39,11 +39,13 @@
 /// let model = loader.get_lp("afiro").unwrap();
 /// ```
 use libc;
+use problemo::common::{GlossProblemResult, IntoCommonProblem};
+use problemo::{Problem, ProblemResult};
 use std::collections::HashSet;
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use tempfile::NamedTempFile;
 
@@ -68,8 +70,9 @@ pub static NETLIB_CASES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         "scsd6", "scsd1", "share2b", "gfrd_pnc", "bnl2", "stocfor2", "nesm", "share1b", "ship04s",
         "grow15", "maros_r7", "blend", "lotfi", "standata", "d6cube", "degen3", "capri", "grow22",
         "etamacro", "ship08l", "afiro", "degen2", "boeing2", "fit1d", "scfxm2", "sctap3", "fit1p",
-        "pilot", "fit2d", "sctap2", "scfxm3", "brandy", "greenbea", "tuff", "sc50a", "vtp_base",
-        "pilotnov", "ship12s", "seba", "fffff800",
+        "pilot", "fit2d", "bandm", "sctap2", "scfxm3", "brandy", "greenbea", "tuff", "sc50a",
+        "vtp_base", "pilotnov", "ship12s", "seba", "fffff800", "bnl1", "scagr7", "stocfor1",
+        "perold",
     ];
 
     HashSet::from_iter(cases.iter().map(|s| s.to_string()))
@@ -82,26 +85,26 @@ impl NetlibLoader {
         format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"))
     }
 
-    pub fn download_compressed(name: &str) {
+    pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
         let cache_dir = NetlibLoader::get_cache_dir();
 
         std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
         if !NETLIB_CASES.contains(name) {
-            panic!("Unknown Netlib case: {}", name);
+            return Err(format!("Unknown Netlib case: {}", name).gloss());
         }
 
         // Download file if it does not exist
         if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
             let url = format!("{}{}", URL, name);
-            let response = reqwest::blocking::get(&url).expect("Failed to download file");
-            assert!(
-                response.status().is_success(),
-                "HTTP error: {} {}",
-                response.status(),
-                name
-            );
-            let bytes = response.bytes().expect("Failed to read response bytes");
+            let response = reqwest::blocking::get(&url)
+                .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
+            if !response.status().is_success() {
+                return Err(format!("HTTP error: {} {}", response.status(), name).gloss());
+            }
+            let bytes = response
+                .bytes()
+                .map_err(|e| format!("Failed to read response bytes: {}", e).gloss())?;
 
             let file_name = format!("{}/{}.emps", &cache_dir, name);
 
@@ -113,18 +116,19 @@ impl NetlibLoader {
             file.write_all(&bytes).expect("Unable to write file.");
             file.sync_all().expect("Failed to sync file");
         }
+
+        Ok(Path::new(&format!("{}/{}.emps", &cache_dir, name)).to_owned())
     }
 
-    fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, std::io::Error> {
-        assert!(
-            std::path::Path::new(&emps_path).exists(),
-            "File does not exist!"
-        );
+    fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
+        if !Path::new(&emps_path).exists() {
+            Err(format!("EMPS file does not exist: {}", emps_path).gloss())?;
+        }
 
         let infile1 = CString::new(emps_path).unwrap();
         let infile1_ptr = infile1.into_raw();
 
-        let tmpfile = NamedTempFile::new().expect("Failed to create temp file");
+        let tmpfile = NamedTempFile::new().expect("Failed to create temporary file");
         let out_path = CString::new(tmpfile.path().to_str().unwrap()).unwrap();
         let out_mode = CString::new("w").unwrap();
 
@@ -133,7 +137,9 @@ impl NetlibLoader {
 
         unsafe {
             let out_file = libc::fopen(out_path.as_ptr(), out_mode.as_ptr());
-            assert!(!out_file.is_null(), "Failed to fopen output file");
+            if out_file.is_null() {
+                Err("Failed to open output file for EMPS decompression".to_string()).gloss()?;
+            }
 
             set_emps_output(out_file);
             emps_init();
@@ -266,7 +272,7 @@ mod tests {
     )]
     #[allow(non_snake_case)]
     fn test_download_compressed(name: &str) {
-        NetlibLoader::download_compressed(name);
+        NetlibLoader::download_compressed(name).unwrap();
     }
 
     #[value_parameterized_test(
