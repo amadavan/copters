@@ -62,3 +62,12 @@ pub trait Solver {
     /// matrix. Returns the solution matrix on success, or an error message on failure.
     fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem>;
 }
+
+pub trait LinearSolver: Solver {}
+
+/// Trait for symmetric linear solvers supporting matrix analysis, factorization, and solving linear
+/// systems.
+///
+/// This trait provides a standard interface for working with sparse matrices and right-hand side
+/// vectors. Implementors must call `analyze` and `factorize` before solving systems.
+pub trait SymmetricLinearSolver: LinearSolver {}
