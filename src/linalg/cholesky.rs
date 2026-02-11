@@ -48,15 +48,8 @@ use faer::sparse::{SparseColMat, SparseColMatRef, SymbolicSparseColMat};
 use faer::{Mat, MatMut, MatRef};
 use problemo::{Problem, ProblemResult};
 
-use crate::linalg::solver::{LinearSolverError, Solver};
+use crate::linalg::solver::{LinearSolver, LinearSolverError, Solver, SymmetricLinearSolver};
 use crate::{E, I};
-
-/// Trait for symmetric linear solvers supporting matrix analysis, factorization, and solving linear
-/// systems.
-///
-/// This trait provides a standard interface for working with sparse matrices and right-hand side
-/// vectors. Implementors must call `analyze` and `factorize` before solving systems.
-pub trait SymmetricLinearSolver: Solver {}
 
 /// Sparse Cholesky solver using the simplicial factorization method.
 ///
@@ -264,6 +257,8 @@ impl Solver for SimplicialSparseCholesky {
         Ok(sol)
     }
 }
+
+impl LinearSolver for SimplicialSparseCholesky {}
 
 impl SymmetricLinearSolver for SimplicialSparseCholesky {}
 
@@ -507,6 +502,8 @@ impl Solver for SupernodalSparseCholesky {
         Ok(sol)
     }
 }
+
+impl LinearSolver for SupernodalSparseCholesky {}
 
 impl SymmetricLinearSolver for SupernodalSparseCholesky {}
 

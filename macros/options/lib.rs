@@ -10,6 +10,11 @@ use quote::{ToTokens, quote};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, LitStr, MetaNameValue, Token, TraitBound, Type, TypeTuple};
 
+#[derive(deluxe::ParseMetaItem)]
+struct ExplicitOptionsInput {
+    name: Ident,
+}
+
 /// ## `explicit_options` Attribute Proc Macro
 ///
 /// The `explicit_options` attribute macro is used to annotate a struct, enabling explicit
@@ -48,13 +53,16 @@ use syn::{Expr, Ident, LitStr, MetaNameValue, Token, TraitBound, Type, TypeTuple
 /// options, keeping your code clear and maintainable. It also enables automatic documentation and
 /// validation, reducing manual bookkeeping and errors.
 #[proc_macro_attribute]
-pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn explicit_options(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_struct = syn::parse_macro_input!(item as syn::ItemStruct);
     let struct_attrs = &item_struct.attrs;
     let vis = &item_struct.vis;
     let ident = &item_struct.ident;
     let generics = &item_struct.generics;
     let struct_token = &item_struct.struct_token;
+
+    let ExplicitOptionsInput { name } =
+        deluxe::parse::<ExplicitOptionsInput>(attr).expect("Failed to parse ExplicitOptionsInput");
 
     let item_attr = struct_attrs
         .iter()
@@ -149,8 +157,8 @@ pub fn explicit_options(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #(#option_vals),*
         }
 
-        impl std::convert::From<&crate::Options> for #internal_options_ident {
-            fn from(options: &crate::Options) -> Self {
+        impl std::convert::From<&#name> for #internal_options_ident {
+            fn from(options: &#name) -> Self {
                 #internal_options_ident {
                     #(#option_def),*
                 }
@@ -303,7 +311,8 @@ pub fn use_option(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[derive(deluxe::ParseMetaItem)]
 struct OptionBuilder {
-    registry_name: Expr,
+    name: Ident,
+    registry_name: Ident,
 }
 /// ## `build_options!` Proc Macro
 ///
@@ -337,8 +346,10 @@ struct OptionBuilder {
 /// keep your documentation accurate and complete.
 #[proc_macro]
 pub fn build_options(tokens: TokenStream) -> TokenStream {
-    let OptionBuilder { registry_name } =
-        deluxe::parse::<OptionBuilder>(tokens).expect("Failed to parse OptionBuilder");
+    let OptionBuilder {
+        name,
+        registry_name,
+    } = deluxe::parse::<OptionBuilder>(tokens).expect("Failed to parse OptionBuilder");
 
     let option_map_guard = OptionMap.lock().unwrap();
     let option_map = option_map_guard.as_ref().unwrap();
@@ -409,11 +420,11 @@ pub fn build_options(tokens: TokenStream) -> TokenStream {
 
         #[doc = #doc_string]
         #[derive(Clone)]
-        pub struct Options {
+        pub struct #name {
             map: std::collections::HashMap<String, Box<dyn crate::OptionTrait>>,
         }
 
-        impl Options {
+        impl #name {
             pub fn new() -> Self {
                 let map = #registry_ident.clone();
                 Self { map }

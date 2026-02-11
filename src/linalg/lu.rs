@@ -42,7 +42,7 @@ use faer::sparse::linalg::lu::simplicial::{self, SimplicialLu};
 use faer::{Mat, MatMut, MatRef};
 use problemo::{Problem, ProblemResult};
 
-use crate::linalg::solver::{LinearSolverError, Solver};
+use crate::linalg::solver::{LinearSolver, LinearSolverError, Solver};
 use crate::{E, I};
 
 /// Sparse LU solver using the simplicial factorization method.
@@ -223,6 +223,8 @@ impl SimplicialSparseLu {
         }
     }
 }
+
+impl LinearSolver for SimplicialSparseLu {}
 
 #[cfg(test)]
 mod tests {
