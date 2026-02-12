@@ -45,7 +45,8 @@ struct ValueParameterizedTestAttribute {
 pub fn value_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the attribute arguments
     let ValueParameterizedTestAttribute { values } =
-        deluxe::parse::<ValueParameterizedTestAttribute>(attr).expect("Failed to parse ValueParameterizedTestAttribute");
+        deluxe::parse::<ValueParameterizedTestAttribute>(attr)
+            .expect("Failed to parse ValueParameterizedTestAttribute");
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
@@ -64,10 +65,16 @@ pub fn value_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenSt
     let test_defs = values.elems.iter().map(|val| {
         // Remove or replace invalid characters for Rust identifiers
         let mut s = val.to_token_stream().to_string();
-        s = s.replace(['"', '\'', '.', '-', '[', ']', '(', ')', '{', '}', ','], "_");
+        s = s.replace(
+            ['"', '\'', '.', '-', '[', ']', '(', ')', '{', '}', ','],
+            "_",
+        );
         s = s.replace(' ', "_");
 
-        let test_name = syn::Ident::new(&format!("{}_{}", item_ident, s.to_case(Case::Snake)), item_ident.span());
+        let test_name = syn::Ident::new(
+            &format!("{}_{}", item_ident, s.to_case(Case::Snake)),
+            item_ident.span(),
+        );
         quote! {
             #[test]
             fn #test_name() {
@@ -127,7 +134,8 @@ struct TypeParameterizedTestAttribute {
 pub fn type_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the attribute arguments
     let TypeParameterizedTestAttribute { values } =
-        deluxe::parse::<TypeParameterizedTestAttribute>(attr).expect("Failed to parse TypeParameterizedTestAttribute");
+        deluxe::parse::<TypeParameterizedTestAttribute>(attr)
+            .expect("Failed to parse TypeParameterizedTestAttribute");
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
@@ -145,13 +153,69 @@ pub fn type_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStr
 
     let test_defs = values.elems.iter().map(|val| {
         let test_name = syn::Ident::new(
-            &format!("{}_{}", item_ident, val.to_token_stream().to_string().to_case(Case::Snake)),
+            &format!(
+                "{}_{}",
+                item_ident,
+                val.to_token_stream().to_string().to_case(Case::Snake)
+            ),
             item_ident.span(),
         );
         quote! {
             #[test]
             fn #test_name() {
                 #item_ident::<#val>()
+            }
+        }
+    });
+
+    quote! {
+        #item_vis #item_sig #item_block
+
+        #(#test_defs)*
+    }
+    .into()
+}
+
+#[derive(deluxe::ParseMetaItem)]
+struct MatrixParameterizedTestAttribute {
+    types: TypeTuple,
+    args: ExprArray,
+}
+
+#[proc_macro_attribute]
+pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse the attribute arguments
+    let MatrixParameterizedTestAttribute { types, args } =
+        deluxe::parse::<MatrixParameterizedTestAttribute>(attr)
+            .expect("Failed to parse MatrixParameterizedTestAttribute");
+
+    let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
+
+    let _item_attrs = &item_fn.attrs;
+    let item_vis = &item_fn.vis;
+    let item_sig = &item_fn.sig;
+    let item_block = &item_fn.block;
+
+    let item_ident = &item_sig.ident;
+    let _item_inputs = &item_sig.inputs;
+
+    if item_sig.inputs.len() != 1usize {
+        panic!("Function must have exactly one argument");
+    }
+
+    let test_defs = types.elems.iter().zip(args.elems.iter()).map(|(ty, arg)| {
+        let test_name = syn::Ident::new(
+            &format!(
+                "{}_{}",
+                item_ident,
+                ty.to_token_stream().to_string().to_case(Case::Snake)
+            ),
+            item_ident.span(),
+        );
+        quote! {
+            #[test]
+            fn #test_name() {
+                #item_ident::<#ty>(#arg)
             }
         }
     });

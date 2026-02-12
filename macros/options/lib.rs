@@ -158,7 +158,7 @@ pub fn explicit_options(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl std::convert::From<&#name> for #internal_options_ident {
-            fn from(options: &#name) -> Self {
+            fn from(options: &#name) -> #internal_options_ident {
                 #internal_options_ident {
                     #(#option_def),*
                 }
@@ -582,7 +582,7 @@ pub fn build_option_enum(token: TokenStream) -> TokenStream {
         impl #enum_name {
             pub const variants: &[#enum_name] = &[ #(#enum_name::#variant_names),* ];
 
-            pub fn into_variant(type_ : #enum_name, #(#argument_types),*) -> Box<dyn #trait_> {
+            pub fn into_variant(type_ : &#enum_name, #(#argument_types),*) -> Box<dyn #trait_> {
                 match type_ {
                     #(#variant_names => Box::new(#variant_types::new(#argument_ident)),)*
                 }
