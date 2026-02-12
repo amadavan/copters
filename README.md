@@ -9,7 +9,7 @@ A high-performance Rust library for numerical optimization, providing efficient 
 
 ## Overview
 
-Copters is designed to be a comprehensive optimization toolkit for Rust, offering a wide range of algorithms for solving constrained and unconstrained optimization problems. Built on top of the `faer` linear algebra library, it provides both ease of use and performance.
+Copters is designed to be a comprehensive optimization toolkit for Rust, offering a wide range of algorithms for solving constrained and unconstrained optimization problems. Built on top of the [`faer`](https://crates.io/crates/faer) linear algebra library, it provides both ease of use and performance.
 
 ## Features
 
@@ -30,16 +30,6 @@ Copters is designed to be a comprehensive optimization toolkit for Rust, offerin
 - [ ] **Stochastic Gradient Descent** - For problems with uncertainty (stochastic programs)
 - [ ] **Interior Point Method** - For nonlinear programs with constraints
 
-<!-- ## Installation
-
-Add this to your `Cargo.toml`:
-
-```toml
-[dependencies]
-copters = "0.1"
-``` -->
-
-
 ## Design Goals
 
 1. **Performance**: Leverage Rust's zero-cost abstractions and the efficient `faer` linear algebra library
@@ -48,23 +38,22 @@ copters = "0.1"
 4. **Usability**: Intuitive API with sensible defaults
 5. **Modularity**: Use only the algorithms you need
 
-## Dependencies
-
-- [`faer`](https://crates.io/crates/faer) - High-performance linear algebra
-- [`snafu`](https://crates.io/crates/snafu) - Error handling
-- [`dyn-clone`](https://crates.io/crates/dyn-clone) - Cloning trait objects
-
 ## Development Status
 
-🚧 **This library is in early development.** APIs are subject to change.
+**This library is in early development.** APIs are subject to change.
 
 Current status:
-- ✅ Project structure and dependencies
-- ✅ Basic linear algebra utilities
-- 🚧 Core algorithm implementations (in progress)
-- ⏳ Documentation and examples
-- ⏳ Comprehensive test suite
-- ⏳ Benchmarks
+- [x] Project structure and dependencies
+- [x] Basic linear algebra utilities
+- [ ] Core algorithm implementations (in progress)
+- [ ] Documentation and examples
+- [ ] Comprehensive test suite
+- [ ] Benchmarks
+
+## Roadmap
+
+- [ ] Support for automatic differentiation
+- [ ] Python bindings via PyO3
 
 ## Contributing
 
@@ -82,14 +71,6 @@ cargo test
 # Generate documentation
 cargo doc --open
 ```
-
-## Roadmap
-
-- [ ] Algorithm implementation
-- [ ] General interface
-- [ ] Support for automatic differentiation
-- [ ] Python bindings via PyO3
-- [ ] Comprehensive documentation and tutorials
 
 ## Related Projects
 
@@ -120,3 +101,7 @@ If you use Copters in your research, please cite:
 Avinash Madavan - avinash.madavan@gmail.com
 
 Project Link: [https://github.com/amadavan/copters](https://github.com/amadavan/copters)
+
+## AI Disclosure
+
+This project makes limited use of AI-assisted tooling. AI is employed for debugging assistance, boilerplate generation, and drafting documentation. All algorithm design, core implementation, and architectural decisions are made by the author. AI-generated content is reviewed before inclusion.
