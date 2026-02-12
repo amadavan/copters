@@ -16,7 +16,7 @@ where
     out
 }
 
-pub(crate) fn cwise_multiply_positive<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
+pub(crate) fn cwise_multiply_finite<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
 where
     E: Mul<Output = E> + PartialOrd,
 {
@@ -24,7 +24,7 @@ where
 
     zip!(x1, x2, out.as_mut()).for_each(|unzip!(x1, x2, out)| {
         let product = *x1 * *x2;
-        *out = if product < E::from(0.) {
+        *out = if product == E::INFINITY || product == -E::INFINITY {
             E::from(0.)
         } else {
             product

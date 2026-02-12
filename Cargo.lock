@@ -320,6 +320,7 @@ dependencies = [
  "faer",
  "loaders",
  "macros",
+ "mps",
  "nix 0.30.1",
  "problemo",
  "windows-sys 0.61.2",

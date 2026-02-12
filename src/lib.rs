@@ -6,8 +6,8 @@ use std::ops::Div;
 use dyn_clone::DynClone;
 use faer::traits::ComplexField;
 use faer::traits::num_traits::{Float, PrimInt};
-use faer::{Col, ColRef, Index};
-use macros::build_options;
+use faer::{Col, Index};
+use macros::{build_options, use_option};
 use problemo::Problem;
 
 pub trait ElementType: ComplexField + Float + Div<Output = Self> + PrimInt {}
@@ -19,6 +19,7 @@ impl<T> IndexType for T where T: Copy + PartialEq + Eq + Ord + Index {}
 pub type E = f64;
 pub type I = usize;
 
+pub mod callback;
 pub mod linalg;
 pub mod lp;
 pub mod nlp;
@@ -78,23 +79,24 @@ pub trait IterativeSolver {
     fn get_max_iter(&self) -> usize;
 
     /// Initialize the solver state.
-    fn initialize(&mut self, state: &mut State) {}
+    fn initialize(&mut self, _state: &mut SolverState) {}
 
     /// Perform a single iteration step.
-    fn iterate(&mut self, state: &mut State) -> Result<(), Problem>;
-
-    /// Check if the solver has converged and return the current status.
-    fn get_status(&self, state: &State) -> Status;
+    fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem>;
 
     /// Run the solver until convergence or maximum iterations.
-    fn solve(&mut self, state: &mut State) -> Result<Status, Problem> {
+    fn solve(
+        &mut self,
+        state: &mut SolverState,
+        properties: &mut Properties,
+    ) -> Result<Status, Problem> {
         self.initialize(state);
 
         let max_iter = self.get_max_iter();
         for iter in 0..max_iter {
             self.iterate(state)?;
 
-            let status = self.get_status(state);
+            let status = state.get_status();
             if status != Status::InProgress {
                 println!(
                     "Converged in {} iterations with status: {:?}",
@@ -103,13 +105,26 @@ pub trait IterativeSolver {
                 );
                 return Ok(status);
             }
+
+            properties.callback.call(state);
+            if let Some(terminator_status) = properties.terminator.terminate(state) {
+                println!(
+                    "Terminated in {} iterations with status: {:?}",
+                    iter + 1,
+                    terminator_status
+                );
+                return Ok(terminator_status);
+            }
         }
         println!("Reached maximum iterations without convergence.");
         Ok(Status::IterationLimit)
     }
 }
 
-pub struct State {
+#[derive(Debug, Clone)]
+pub struct SolverState {
+    status: Status,
+
     x: Col<E>,
     y: Col<E>,
     z_l: Col<E>,
@@ -120,30 +135,47 @@ pub struct State {
 
     primal_infeasibility: E,
     dual_infeasibility: E,
+
+    // Solver-specific state can be added here as needed
+    sigma: Option<E>,
+    mu: Option<E>,
 }
 
-impl State {
-    pub fn new() -> Self {
+impl SolverState {
+    pub fn new(x: Col<E>, y: Col<E>, z_l: Col<E>, z_u: Col<E>) -> Self {
         Self {
-            x: Col::zeros(0),
-            y: Col::zeros(0),
-            z_l: Col::zeros(0),
-            z_u: Col::zeros(0),
+            status: Status::InProgress,
+
+            x,
+            y,
+            z_l,
+            z_u,
 
             alpha_primal: E::from(1.),
             alpha_dual: E::from(1.),
 
             primal_infeasibility: E::from(0.),
             dual_infeasibility: E::from(0.),
+
+            sigma: None,
+            mu: None,
         }
     }
 
-    pub fn get_primal(&self) -> ColRef<E> {
-        self.x.as_ref()
+    pub fn get_status(&self) -> Status {
+        self.status
     }
 
-    pub fn get_dual(&self) -> ColRef<E> {
-        self.y.as_ref()
+    pub fn set_status(&mut self, status: Status) {
+        self.status = status;
+    }
+
+    pub fn get_primal(&self) -> &Col<E> {
+        &self.x
+    }
+
+    pub fn get_dual(&self) -> &Col<E> {
+        &self.y
     }
 
     pub fn get_reduced_cost(&self) -> Col<E> {
@@ -157,4 +189,20 @@ impl State {
     pub fn get_dual_infeasibility(&self) -> E {
         self.dual_infeasibility
     }
+
+    pub(crate) fn get_sigma_mu(&self) -> (Option<E>, Option<E>) {
+        (self.sigma, self.mu)
+    }
+
+    pub(crate) fn set_sigma_mu(&mut self, sigma: Option<E>, mu: Option<E>) {
+        self.sigma = sigma;
+        self.mu = mu;
+    }
+}
+
+#[use_option(name="Callback", type_=crate::callback::Callbacks, description="Callback for the solver.")]
+#[use_option(name="Terminator", type_=crate::terminators::Terminators, default="NullTerminator", description="Terminator for the solver.")]
+struct Properties {
+    callback: Box<dyn crate::callback::Callback>,
+    terminator: Box<dyn crate::terminators::Terminator>,
 }

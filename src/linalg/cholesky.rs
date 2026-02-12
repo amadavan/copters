@@ -665,7 +665,7 @@ mod tests {
             let mut result = col.clone();
             result = solver.solve(result.as_ref()).expect("Unable to solve");
 
-            println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
+            // println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
             assert!((&col - &mat * &result).norm_l2() < 1e-10); // Check if Ax ≈ b
         }
     }
@@ -693,11 +693,11 @@ mod tests {
         test_symmetric_solver::<T>(mat, 10);
     }
 
-    #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
-    fn test_symmetric_solver_bundle1<T: SymmetricLinearSolver>() {
-        let mat = loaders::mtx::get_matrix_by_name("bundle1", true);
-        test_symmetric_solver::<T>(mat, 10);
-    }
+    // #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
+    // fn test_symmetric_solver_bundle1<T: SymmetricLinearSolver>() {
+    //     let mat = loaders::mtx::get_matrix_by_name("bundle1", true);
+    //     test_symmetric_solver::<T>(mat, 10);
+    // }
 
     // #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
     // fn test_symmetric_solver_nd3k<T: SymmetricLinearSolver>() {

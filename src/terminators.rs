@@ -10,12 +10,30 @@
 
 use std::sync::{Arc, atomic::AtomicBool};
 
-use crate::Status;
+use macros::{build_option_enum, explicit_options, use_option};
+
+use crate::{E, SolverOptions, SolverState, Status};
 
 pub trait Terminator {
+    fn new(options: &SolverOptions) -> Self
+    where
+        Self: Sized;
+
     fn initialize(&mut self) {}
 
-    fn terminate(&mut self) -> Option<Status>;
+    fn terminate(&mut self, state: &SolverState) -> Option<Status>;
+}
+
+pub struct NullTerminator {}
+
+impl Terminator for NullTerminator {
+    fn new(_options: &SolverOptions) -> Self {
+        Self {}
+    }
+
+    fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
+        None
+    }
 }
 
 /// Terminator that responds to Ctrl-C (SIGINT) or programmatic interrupts.
@@ -28,7 +46,14 @@ pub struct InterruptTerminator {
 }
 
 impl InterruptTerminator {
-    pub fn new() -> Self {
+    pub fn interrupt(&mut self) {
+        self.interrupted
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Terminator for InterruptTerminator {
+    fn new(_options: &SolverOptions) -> Self {
         let interrupted = Arc::new(AtomicBool::new(false));
         ctrlc::set_handler({
             let interrupted_clone = interrupted.clone();
@@ -40,14 +65,7 @@ impl InterruptTerminator {
         Self { interrupted }
     }
 
-    pub fn interrupt(&mut self) {
-        self.interrupted
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-impl Terminator for InterruptTerminator {
-    fn terminate(&mut self) -> Option<Status> {
+    fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
         if self.interrupted.load(std::sync::atomic::Ordering::SeqCst) {
             Some(Status::Interrupted)
         } else {
@@ -57,27 +75,28 @@ impl Terminator for InterruptTerminator {
 }
 
 /// Terminator that triggers after a specified number of seconds.
+#[explicit_options(name = SolverOptions)]
+#[use_option(name = "max_time", type_ = u64, default = "3600", description = "Maximum time in seconds before termination")]
 pub struct TimeOutTerminator {
-    max_time_secs: u64,
     start_time: std::time::Instant,
 }
 
-impl TimeOutTerminator {
-    pub fn new(max_time_secs: u64) -> Self {
-        Self {
-            max_time_secs,
-            start_time: std::time::Instant::now(),
-        }
-    }
-}
+impl TimeOutTerminator {}
 
 impl Terminator for TimeOutTerminator {
+    fn new(options: &SolverOptions) -> Self {
+        Self {
+            start_time: std::time::Instant::now(),
+            options: options.into(),
+        }
+    }
+
     fn initialize(&mut self) {
         self.start_time = std::time::Instant::now();
     }
 
-    fn terminate(&mut self) -> Option<Status> {
-        if self.start_time.elapsed().as_secs() >= self.max_time_secs {
+    fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
+        if self.start_time.elapsed().as_secs() >= self.options.max_time {
             Some(Status::TimeLimit)
         } else {
             None
@@ -85,8 +104,91 @@ impl Terminator for TimeOutTerminator {
     }
 }
 
+#[explicit_options(name = SolverOptions)]
+#[use_option(name = "tolerance", type_ = E, default = "1e-6", description = "Tolerance for convergence-based termination")]
+pub struct ConvergenceTerminator {}
+
+impl Terminator for ConvergenceTerminator {
+    fn new(options: &SolverOptions) -> Self {
+        Self {
+            options: options.into(),
+        }
+    }
+
+    fn terminate(&mut self, state: &SolverState) -> Option<Status> {
+        if state.get_primal_infeasibility() <= self.options.tolerance
+            && state.get_dual_infeasibility() <= self.options.tolerance
+        {
+            Some(Status::Optimal)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct MultiTerminator {
+    terminators: Vec<Box<dyn Terminator>>,
+}
+
+impl MultiTerminator {
+    pub fn new_default(options: &SolverOptions) -> Self {
+        Self {
+            terminators: vec![
+                Box::new(InterruptTerminator::new(&options)),
+                Box::new(TimeOutTerminator::new(&options)),
+                Box::new(ConvergenceTerminator::new(&options)),
+            ],
+        }
+    }
+
+    pub fn new_with_terminators(terminators: Vec<Box<dyn Terminator>>) -> Self {
+        Self { terminators }
+    }
+
+    pub fn add_terminator(&mut self, terminator: Box<dyn Terminator>) {
+        self.terminators.push(terminator);
+    }
+}
+
+impl Terminator for MultiTerminator {
+    fn new(options: &SolverOptions) -> Self {
+        Self::new_default(options)
+    }
+
+    fn initialize(&mut self) {
+        for terminator in &mut self.terminators {
+            terminator.initialize();
+        }
+    }
+
+    fn terminate(&mut self, state: &SolverState) -> Option<Status> {
+        for terminator in &mut self.terminators {
+            if let Some(status) = terminator.terminate(state) {
+                return Some(status);
+            }
+        }
+        None
+    }
+}
+
+build_option_enum!(
+    trait_ = Terminator,
+    name = "Terminators",
+    variants = (
+        NullTerminator,
+        InterruptTerminator,
+        TimeOutTerminator,
+        ConvergenceTerminator,
+        MultiTerminator
+    ),
+    new_arguments = (&SolverOptions,),
+    doc_header = "Termination criteria for the solver."
+);
+
 #[cfg(test)]
 mod tests {
+    use faer::col::generic::Col;
+
     use super::*;
 
     #[cfg(unix)]
@@ -114,7 +216,9 @@ mod tests {
 
     #[test]
     fn test_interruption_terminator_ctrlc() {
-        let mut terminator = InterruptTerminator::new();
+        let options = SolverOptions::new();
+        let mut terminator = InterruptTerminator::new(&options);
+        let state = SolverState::new(Col::zeros(0), Col::zeros(0), Col::zeros(0), Col::zeros(0)); // Dummy state
 
         std::thread::spawn(|| {
             std::thread::sleep(std::time::Duration::from_secs(2));
@@ -122,7 +226,7 @@ mod tests {
         });
 
         loop {
-            if let Some(status) = terminator.terminate() {
+            if let Some(status) = terminator.terminate(&state) {
                 assert_eq!(status, Status::Interrupted);
                 break;
             }

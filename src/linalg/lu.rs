@@ -255,7 +255,7 @@ mod tests {
 
             let result = solver.solve(col.as_ref()).expect("Unable to solve");
 
-            println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
+            // println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
             assert!((&col - &mat * &result).norm_l2() < 1e-10); // Check if Ax ≈ b
         }
     }
