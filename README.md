@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/copters.svg)](https://crates.io/crates/copters)
 [![Documentation](https://docs.rs/copters/badge.svg)](https://docs.rs/copters)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://github.com/amadavan/copters/actions/workflows/rust.yml/badge.svg)](https://github.com/amadavan/copters/actions/workflows/rust.yml)
+[![Rust](https://github.com/amadavan/copters/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/amadavan/copters/actions/workflows/rust.yml)
 
 A high-performance Rust library for numerical optimization, providing efficient implementations of algorithms for linear and nonlinear programming.
 
@@ -18,7 +18,7 @@ Copters is designed to be a comprehensive optimization toolkit for Rust, offerin
 #### Linear Programming
 - [ ] **Revised Simplex Method** - Memory-efficient variant of the simplex method
 - [ ] **Revised Dual Simplex** - For problems starting with dual feasibility
-- [ ] **Mehrotra Predictor-Corrector** - Polynomial-time algorithms for large-scale linear programs
+- [x] **Mehrotra Predictor-Corrector** - Polynomial-time algorithms for large-scale linear programs
 
 #### General Convex Optimization
 - [ ] **ADMM** (Alternating Direction Method of Multipliers) - For distributed and constrained convex optimization
