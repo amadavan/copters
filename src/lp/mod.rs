@@ -3,7 +3,7 @@ use faer::{
     sparse::{SparseColMat, Triplet},
 };
 
-use crate::{E, I, IterativeSolver, SolverOptions};
+use crate::{E, I, Solver, SolverOptions};
 
 pub mod mpc;
 
@@ -208,7 +208,7 @@ impl From<mps::model::Model<f32>> for LinearProgram {
 }
 
 /// Trait for solvers that operate on a [`LinearProgram`].
-pub trait LinearProgramSolver<'a>: IterativeSolver {
+pub trait LinearProgramSolver<'a>: Solver {
     /// Creates a new solver instance for the given linear program and options.
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self;
 }

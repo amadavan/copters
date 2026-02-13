@@ -75,50 +75,13 @@ pub enum Status {
 ///
 /// Provides a standard interface for algorithms that proceed by repeated iteration,
 /// such as simplex, interior-point, or gradient-based methods.
-pub trait IterativeSolver {
-    fn get_max_iter(&self) -> usize;
-
-    /// Initialize the solver state.
-    fn initialize(&mut self, _state: &mut SolverState) {}
-
-    /// Perform a single iteration step.
-    fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem>;
-
+pub trait Solver {
     /// Run the solver until convergence or maximum iterations.
     fn solve(
         &mut self,
         state: &mut SolverState,
         properties: &mut Properties,
-    ) -> Result<Status, Problem> {
-        self.initialize(state);
-
-        let max_iter = self.get_max_iter();
-        for iter in 0..max_iter {
-            self.iterate(state)?;
-
-            let status = state.get_status();
-            if status != Status::InProgress {
-                println!(
-                    "Converged in {} iterations with status: {:?}",
-                    iter + 1,
-                    status
-                );
-                return Ok(status);
-            }
-
-            properties.callback.call(state);
-            if let Some(terminator_status) = properties.terminator.terminate(state) {
-                println!(
-                    "Terminated in {} iterations with status: {:?}",
-                    iter + 1,
-                    terminator_status
-                );
-                return Ok(terminator_status);
-            }
-        }
-        println!("Reached maximum iterations without convergence.");
-        Ok(Status::IterationLimit)
-    }
+    ) -> Result<Status, Problem>;
 }
 
 #[derive(Debug, Clone)]

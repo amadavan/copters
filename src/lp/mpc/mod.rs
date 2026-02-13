@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, IterativeSolver, SolverOptions, SolverState, Status,
+    E, Properties, Solver, SolverOptions, SolverState, Status,
     callback::{Callback, Callbacks},
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
@@ -73,27 +73,27 @@ impl Residual {
 #[use_option(name = "MaxIterations", type_=usize, default="0", description="Maximum number of iterations (0 uses solver defaults).")]
 pub struct MehrotraPredictorCorrector<
     'a,
-    Solver: LinearSolver,
-    System: AugmentedSystem<'a, Solver>,
+    LinSolve: LinearSolver,
+    Sys: AugmentedSystem<'a, LinSolve>,
     MU: MuUpdate<'a>,
     LS: LineSearch<'a>,
 > {
     lp: &'a LinearProgram,
 
-    system: System,
+    system: Sys,
     mu_updater: MU,
     line_search: LS,
 
-    _solver: PhantomData<Solver>,
+    _solver: PhantomData<LinSolve>,
 }
 
 impl<
     'a,
-    Solver: LinearSolver,
-    System: AugmentedSystem<'a, Solver>,
+    LinSolve: LinearSolver,
+    Sys: AugmentedSystem<'a, LinSolve>,
     MU: MuUpdate<'a>,
     LS: LineSearch<'a>,
-> MehrotraPredictorCorrector<'a, Solver, System, MU, LS>
+> MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
 {
     const DEFAULT_MAX_ITER: usize = 100;
 
@@ -113,37 +113,7 @@ impl<
             cs_upper: cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.lp.u).as_ref()), // Placeholder
         }
     }
-}
 
-impl<
-    'a,
-    Solver: LinearSolver,
-    System: AugmentedSystem<'a, Solver>,
-    MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
-> LinearProgramSolver<'a> for MehrotraPredictorCorrector<'a, Solver, System, MU, LS>
-{
-    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
-        Self {
-            lp,
-            system: System::new(lp),
-            mu_updater: MU::new(lp, options),
-            line_search: LS::new(lp, options),
-            options: options.into(),
-
-            _solver: PhantomData,
-        }
-    }
-}
-
-impl<
-    'a,
-    Solver: LinearSolver,
-    System: AugmentedSystem<'a, Solver>,
-    MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
-> IterativeSolver for MehrotraPredictorCorrector<'a, Solver, System, MU, LS>
-{
     fn get_max_iter(&self) -> usize {
         if self.options.MaxIterations < 1 {
             Self::DEFAULT_MAX_ITER
@@ -202,5 +172,74 @@ impl<
         state.status = Status::InProgress;
 
         Ok(())
+    }
+}
+
+impl<
+    'a,
+    LinSolve: LinearSolver,
+    Sys: AugmentedSystem<'a, LinSolve>,
+    MU: MuUpdate<'a>,
+    LS: LineSearch<'a>,
+> LinearProgramSolver<'a> for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
+{
+    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
+        Self {
+            lp,
+            system: Sys::new(lp),
+            mu_updater: MU::new(lp, options),
+            line_search: LS::new(lp, options),
+            options: options.into(),
+
+            _solver: PhantomData,
+        }
+    }
+}
+
+impl<
+    'a,
+    LinSolve: LinearSolver,
+    Sys: AugmentedSystem<'a, LinSolve>,
+    MU: MuUpdate<'a>,
+    LS: LineSearch<'a>,
+> Solver for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
+{
+    /// Run the solver until convergence or maximum iterations.
+    fn solve(
+        &mut self,
+        state: &mut SolverState,
+        properties: &mut Properties,
+    ) -> Result<Status, Problem> {
+        self.initialize(state);
+        state.nit = 0;
+        state.set_status(Status::InProgress);
+
+        let max_iter = self.get_max_iter();
+        for iter in 0..max_iter {
+            state.nit = iter;
+            self.iterate(state)?;
+
+            let status = state.get_status();
+            if status != Status::InProgress {
+                println!(
+                    "Converged in {} iterations with status: {:?}",
+                    iter + 1,
+                    status
+                );
+                return Ok(status);
+            }
+
+            properties.callback.call(state);
+            if let Some(terminator_status) = properties.terminator.terminate(state) {
+                println!(
+                    "Terminated in {} iterations with status: {:?}",
+                    iter + 1,
+                    terminator_status
+                );
+                return Ok(terminator_status);
+            }
+        }
+        println!("Reached maximum iterations without convergence.");
+        Ok(Status::IterationLimit)
     }
 }
