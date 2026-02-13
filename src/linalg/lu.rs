@@ -33,7 +33,7 @@
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
 
-use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::perm::Perm;
 use faer::prelude::{Reborrow, ReborrowMut};
 use faer::sparse::SparseColMatRef;
@@ -189,7 +189,13 @@ impl Solver for SimplicialSparseLu {
         let nrows = lu.nrows();
         let nrhs = sol.ncols();
 
-        let mut work = Mat::zeros(nrows, nrhs);
+        let mut mem = MemBuffer::try_new(StackReq::all_of(&[
+            // simplicial::factorize_simplicial_numeric_ldlt_scratch::<usize, f64>(dim),
+            faer::perm::permute_rows_in_place_scratch::<usize, f64>(nrows, 1),
+            simplicial::solve_in_place_scratch::<usize, f64>(nrows, nrhs, faer::Par::Seq),
+        ]))
+        .via(LinearSolverError::MemoryAllocation)?;
+        let stack = MemStack::new(&mut mem);
 
         lu.solve_in_place_with_conj(
             row_perm.as_ref(),
@@ -197,7 +203,7 @@ impl Solver for SimplicialSparseLu {
             faer::Conj::No,
             sol.rb_mut(),
             faer::Par::Seq,
-            work.as_mut(),
+            stack,
         );
 
         Ok(())
