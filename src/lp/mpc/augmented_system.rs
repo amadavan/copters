@@ -159,7 +159,9 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
 
         let (mut rhs_dual, mut rhs_primal) = rhs.split_at_row_mut(n_var);
         rhs_dual.copy_from(
-            residual.get_dual_feasibility() + state.z_l.as_ref() + state.z_u.as_ref()
+            residual.get_dual_feasibility()
+                - cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
+                - cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
                 - sigma * mu * (&xl_inv + &xu_inv),
         );
         rhs_primal.copy_from(&residual.get_primal_feasibility().as_ref());
@@ -170,17 +172,17 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         };
         let (dx, dy) = solution.split_at_row(n_var);
         let dz_l = sigma * mu * xl_inv.as_ref()
-            - &state.z_l
             - cwise_multiply(
                 cwise_multiply(xl_inv.as_ref(), state.z_l.as_ref()).as_ref(),
                 dx.as_ref(),
-            );
+            )
+            + cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref());
         let dz_u = sigma * mu * xu_inv.as_ref()
-            - &state.z_u
             - cwise_multiply(
                 cwise_multiply(xu_inv.as_ref(), state.z_u.as_ref()).as_ref(),
                 dx.as_ref(),
-            );
+            )
+            + cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref());
 
         Ok(Step {
             dx: dx.to_owned(), // Placeholder

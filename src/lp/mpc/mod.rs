@@ -104,8 +104,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
             // Primal feasibility: b - A x
             primal_feasibility: &self.lp.b - &self.lp.A * &state.x,
             // Complimentary slackness
-            cs_lower: cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.lp.l).as_ref()), // Placeholder
-            cs_upper: cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.lp.u).as_ref()), // Placeholder
+            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.lp.l).as_ref()), // Placeholder
+            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.lp.u).as_ref()), // Placeholder
         }
     }
 
@@ -162,6 +162,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         let residual = self.compute_residual(state);
         state.primal_infeasibility = residual.get_primal_feasibility().norm_l2();
         state.dual_infeasibility = residual.get_dual_feasibility().norm_l2();
+        state.complimentary_slackness_lower = residual.get_complementarity_lower().norm_l2();
+        state.complimentary_slackness_upper = residual.get_complementarity_upper().norm_l2();
 
         state.status = Status::InProgress;
 
