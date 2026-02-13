@@ -5,6 +5,7 @@ use faer::{Col, ColRef, unzip, zip};
 
 use crate::E;
 
+#[allow(unused)]
 pub(crate) fn cwise_multiply<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
 where
     E: Mul<Output = E>,
@@ -16,6 +17,7 @@ where
     out
 }
 
+#[allow(unused)]
 pub(crate) fn cwise_multiply_finite<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
 where
     E: Mul<Output = E> + PartialOrd,
@@ -34,6 +36,7 @@ where
     out
 }
 
+#[allow(unused)]
 pub(crate) fn cwise_quotient<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
 where
     E: Div<Output = E>,
@@ -45,6 +48,7 @@ where
     out
 }
 
+#[allow(unused)]
 pub(crate) fn cwise_inverse<'a>(x: ColRef<'a, E>) -> Col<E>
 where
     E: Div<Output = E>,
@@ -56,6 +60,7 @@ where
     out
 }
 
+#[allow(unused)]
 pub(crate) fn col_min<'a>(x: ColRef<'a, E>) -> E {
     let mut minimum = E::from(INFINITY);
 
@@ -64,6 +69,7 @@ pub(crate) fn col_min<'a>(x: ColRef<'a, E>) -> E {
     minimum
 }
 
+#[allow(unused)]
 pub(crate) fn is_col_positive<'a>(x: ColRef<'a, E>) -> bool {
     let mut res = true;
     zip!(x).for_each(|unzip!(x)| {

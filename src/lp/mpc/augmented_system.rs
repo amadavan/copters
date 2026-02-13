@@ -6,7 +6,6 @@ use faer::{
     sparse::{SparseColMat, SymbolicSparseColMat},
 };
 use problemo::Problem;
-use problemo::common::IntoCommonProblem;
 
 use crate::{
     E, I, SolverState,
@@ -153,9 +152,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         let (n_var, n_con) = self.lp.get_dims();
 
         // Convert residual to right hand side for the linear system
-        let (Some(sigma), Some(mu)) = state.get_sigma_mu() else {
-            return Err("sigma or mu is not set".gloss());
-        };
+        let (sigma, mu) = state.get_sigma_mu();
         let mut rhs = Col::zeros(n_var + n_con);
         let xl_inv = cwise_inverse((&state.x - &self.lp.l).as_ref());
         let xu_inv = cwise_inverse((&state.x - &self.lp.u).as_ref());

@@ -2,6 +2,7 @@ use faer::{Col, sparse::SparseColMat};
 
 use crate::{E, I};
 
+#[allow(dead_code)]
 struct NonlinearProgram {
     n_var: I,
     n_cons: I,
@@ -13,6 +14,7 @@ struct NonlinearProgram {
     h: Option<fn(Col<E>, Col<E>) -> SparseColMat<I, E>>,
 }
 
+#[allow(dead_code)]
 impl NonlinearProgram {
     fn new(
         n_var: I,

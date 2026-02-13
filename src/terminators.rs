@@ -113,7 +113,7 @@ impl Terminator for TimeOutTerminator {
 
 /// Terminates when both primal and dual infeasibility fall below `tolerance`.
 #[explicit_options(name = SolverOptions)]
-#[use_option(name = "tolerance", type_ = E, default = "1e-6", description = "Tolerance for convergence-based termination")]
+#[use_option(name = "tolerance", type_ = E, default = "1e-7", description = "Tolerance for convergence-based termination")]
 pub struct ConvergenceTerminator {}
 
 impl Terminator for ConvergenceTerminator {
@@ -124,8 +124,8 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility() <= self.options.tolerance / state.x.nrows() as E
-            && state.get_dual_infeasibility() <= self.options.tolerance / state.y.nrows() as E
+        if state.get_primal_infeasibility() <= self.options.tolerance * state.x.nrows() as E
+            && state.get_dual_infeasibility() <= self.options.tolerance * state.y.nrows() as E
         {
             Some(Status::Optimal)
         } else {
