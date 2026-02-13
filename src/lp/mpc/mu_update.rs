@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use macros::{explicit_options, use_option};
 
 use crate::{
@@ -22,13 +24,13 @@ pub trait MuUpdate<'a> {
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "mu_fixed", type_ = E, default = "1.", description = "Constant value for the barrier parameter mu")]
 pub struct ConstantMuUpdate<'a> {
-    lp: &'a LinearProgram,
+    _a: PhantomData<&'a ()>,
 }
 
 impl<'a> MuUpdate<'a> for ConstantMuUpdate<'a> {
-    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
+    fn new(_lp: &'a LinearProgram, options: &SolverOptions) -> Self {
         Self {
-            lp,
+            _a: PhantomData,
             options: options.into(),
         }
     }

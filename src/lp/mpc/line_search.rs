@@ -1,5 +1,5 @@
 use faer::{Col, unzip, zip};
-use macros::{build_option_enum, explicit_options, use_option};
+use macros::{explicit_options, use_option};
 
 use crate::{
     E, SolverOptions, SolverState,

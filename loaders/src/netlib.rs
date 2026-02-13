@@ -41,7 +41,7 @@
 use libc;
 use problemo::Problem;
 use problemo::common::{GlossProblemResult, IntoCommonProblem};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -60,22 +60,100 @@ static EMPS_LOCK: Mutex<()> = Mutex::new(());
 
 pub static URL: &str = "https://netlib.org/lp/data/";
 
-pub static NETLIB_CASES: LazyLock<HashSet<String>> = LazyLock::new(|| {
-    let cases = vec![
-        "agg", "ship04l", "d2q06c", "e226", "25fv47", "bore3d", "ganges", "adlittle", "forplan",
-        "sc205", "scrs8", "wood1p", "boeing1", "kb2", "ship08s", "scfxm1", "agg2", "finnis",
-        "dfl001", "pilot87", "sctap1", "agg3", "grow7", "scorpion", "maros", "shell", "greenbeb",
-        "sc50b", "recipe", "sierra", "scagr25", "modszk1", "ship12l", "stair", "cycle", "sc105",
-        "pilot_ja", "beaconfd", "czprob", "pilot_we", "standgub", "standmps", "scsd8", "woodw",
-        "scsd6", "scsd1", "share2b", "gfrd_pnc", "bnl2", "stocfor2", "nesm", "share1b", "ship04s",
-        "grow15", "maros_r7", "blend", "lotfi", "standata", "d6cube", "degen3", "capri", "grow22",
-        "etamacro", "ship08l", "afiro", "degen2", "boeing2", "fit1d", "scfxm2", "sctap3", "fit1p",
-        "pilot", "fit2d", "bandm", "sctap2", "scfxm3", "brandy", "greenbea", "tuff", "sc50a",
-        "vtp_base", "pilotnov", "ship12s", "seba", "fffff800", "bnl1", "scagr7", "stocfor1",
-        "perold",
-    ];
-
-    HashSet::from_iter(cases.iter().map(|s| s.to_string()))
+pub static NETLIB_CASES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert("agg".to_string(), "agg".to_string());
+    m.insert("ship04l".to_string(), "ship04l".to_string());
+    m.insert("d2q06c".to_string(), "d2q06c".to_string());
+    m.insert("e226".to_string(), "e226".to_string());
+    m.insert("25fv47".to_string(), "25fv47".to_string());
+    m.insert("bore3d".to_string(), "bore3d".to_string());
+    m.insert("ganges".to_string(), "ganges".to_string());
+    m.insert("adlittle".to_string(), "adlittle".to_string());
+    m.insert("forplan".to_string(), "forplan".to_string());
+    m.insert("sc205".to_string(), "sc205".to_string());
+    m.insert("scrs8".to_string(), "scrs8".to_string());
+    m.insert("wood1p".to_string(), "wood1p".to_string());
+    m.insert("boeing1".to_string(), "boeing1".to_string());
+    m.insert("kb2".to_string(), "kb2".to_string());
+    m.insert("ship08s".to_string(), "ship08s".to_string());
+    m.insert("scfxm1".to_string(), "scfxm1".to_string());
+    m.insert("agg2".to_string(), "agg2".to_string());
+    m.insert("finnis".to_string(), "finnis".to_string());
+    m.insert("dfl001".to_string(), "dfl001".to_string());
+    m.insert("pilot87".to_string(), "pilot87".to_string());
+    m.insert("sctap1".to_string(), "sctap1".to_string());
+    m.insert("agg3".to_string(), "agg3".to_string());
+    m.insert("grow7".to_string(), "grow7".to_string());
+    m.insert("scorpion".to_string(), "scorpion".to_string());
+    m.insert("maros".to_string(), "maros".to_string());
+    m.insert("shell".to_string(), "shell".to_string());
+    m.insert("greenbeb".to_string(), "greenbeb".to_string());
+    m.insert("sc50b".to_string(), "sc50b".to_string());
+    m.insert("recipe".to_string(), "recipe".to_string());
+    m.insert("sierra".to_string(), "sierra".to_string());
+    m.insert("scagr25".to_string(), "scagr25".to_string());
+    m.insert("modszk1".to_string(), "modszk1".to_string());
+    m.insert("ship12l".to_string(), "ship12l".to_string());
+    m.insert("stair".to_string(), "stair".to_string());
+    m.insert("cycle".to_string(), "cycle".to_string());
+    m.insert("sc105".to_string(), "sc105".to_string());
+    m.insert("pilot_ja".to_string(), "pilot.ja".to_string());
+    m.insert("beaconfd".to_string(), "beaconfd".to_string());
+    m.insert("czprob".to_string(), "czprob".to_string());
+    m.insert("pilot_we".to_string(), "pilot.we".to_string());
+    m.insert("standgub".to_string(), "standgub".to_string());
+    m.insert("standmps".to_string(), "standmps".to_string());
+    m.insert("scsd8".to_string(), "scsd8".to_string());
+    m.insert("woodw".to_string(), "woodw".to_string());
+    m.insert("scsd6".to_string(), "scsd6".to_string());
+    m.insert("scsd1".to_string(), "scsd1".to_string());
+    m.insert("share2b".to_string(), "share2b".to_string());
+    m.insert("gfrd_pnc".to_string(), "gfrd-pnc".to_string());
+    m.insert("bnl2".to_string(), "bnl2".to_string());
+    m.insert("stocfor2".to_string(), "stocfor2".to_string());
+    m.insert("nesm".to_string(), "nesm".to_string());
+    m.insert("share1b".to_string(), "share1b".to_string());
+    m.insert("ship04s".to_string(), "ship04s".to_string());
+    m.insert("grow15".to_string(), "grow15".to_string());
+    m.insert("maros_r7".to_string(), "maros-r7".to_string());
+    m.insert("blend".to_string(), "blend".to_string());
+    m.insert("lotfi".to_string(), "lotfi".to_string());
+    m.insert("standata".to_string(), "standata".to_string());
+    m.insert("d6cube".to_string(), "d6cube".to_string());
+    m.insert("degen3".to_string(), "degen3".to_string());
+    m.insert("capri".to_string(), "capri".to_string());
+    m.insert("grow22".to_string(), "grow22".to_string());
+    m.insert("etamacro".to_string(), "etamacro".to_string());
+    m.insert("ship08l".to_string(), "ship08l".to_string());
+    m.insert("afiro".to_string(), "afiro".to_string());
+    m.insert("degen2".to_string(), "degen2".to_string());
+    m.insert("boeing2".to_string(), "boeing2".to_string());
+    m.insert("fit1d".to_string(), "fit1d".to_string());
+    m.insert("scfxm2".to_string(), "scfxm2".to_string());
+    m.insert("sctap3".to_string(), "sctap3".to_string());
+    m.insert("fit1p".to_string(), "fit1p".to_string());
+    m.insert("pilot".to_string(), "pilot".to_string());
+    m.insert("fit2d".to_string(), "fit2d".to_string());
+    m.insert("sctap2".to_string(), "sctap2".to_string());
+    m.insert("scfxm3".to_string(), "scfxm3".to_string());
+    m.insert("brandy".to_string(), "brandy".to_string());
+    m.insert("greenbea".to_string(), "greenbea".to_string());
+    m.insert("tuff".to_string(), "tuff".to_string());
+    m.insert("sc50a".to_string(), "sc50a".to_string());
+    m.insert("vtp_base".to_string(), "vtp.base".to_string());
+    m.insert("pilotnov".to_string(), "pilotnov".to_string());
+    m.insert("ship12s".to_string(), "ship12s".to_string());
+    m.insert("seba".to_string(), "seba".to_string());
+    m.insert("fffff800".to_string(), "fffff800".to_string());
+    m.insert("israel".to_string(), "israel".to_string());
+    m.insert("perold".to_string(), "perold".to_string());
+    m.insert("pilot4".to_string(), "pilot4".to_string());
+    m.insert("scagr7".to_string(), "scagr7".to_string());
+    m.insert("bandm".to_string(), "bandm".to_string());
+    m.insert("bnl1".to_string(), "bnl1".to_string());
+    m.insert("stocfor1".to_string(), "stocfor1".to_string());
+    m
 });
 
 fn get_cache_dir() -> String {
@@ -87,13 +165,13 @@ pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
 
     std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
-    if !NETLIB_CASES.contains(name) {
+    if !NETLIB_CASES.contains_key(name) {
         return Err(format!("Unknown Netlib case: {}", name).gloss());
     }
 
     // Download file if it does not exist
     if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
-        let url = format!("{}{}", URL, name);
+        let url = format!("{}{}", URL, NETLIB_CASES.get(name).unwrap());
         let response = reqwest::blocking::get(&url)
             .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
         if !response.status().is_success() {
@@ -151,6 +229,7 @@ fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
 
 pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, Problem> {
     download_compressed(name)?;
+
     let emps_path = format!("{}/{}.emps", get_cache_dir(), name);
     let mps_file = decompress_mps(&emps_path)
         .map_err(|e| format!("Unable to decompress emps file: {}", e).gloss())?;

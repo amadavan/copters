@@ -6,7 +6,6 @@ use problemo::Problem;
 
 use crate::{
     E, Properties, Solver, SolverOptions, SolverState, Status,
-    callback::{Callback, Callbacks},
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
         LinearProgram, LinearProgramSolver,
@@ -122,8 +121,8 @@ impl<
         }
     }
 
-    fn initialize(&mut self, state: &mut SolverState) {
-        // Initialization code here
+    fn initialize(&mut self, _state: &mut SolverState) {
+        // TODO: Initialization code here
     }
 
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {

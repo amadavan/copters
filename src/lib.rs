@@ -20,6 +20,7 @@ pub type E = f64;
 pub type I = usize;
 
 pub mod callback;
+pub mod interface;
 pub mod linalg;
 pub mod lp;
 pub mod nlp;
@@ -167,7 +168,7 @@ impl SolverState {
 
 #[use_option(name="Callback", type_=crate::callback::Callbacks, description="Callback for the solver.")]
 #[use_option(name="Terminator", type_=crate::terminators::Terminators, default="NullTerminator", description="Terminator for the solver.")]
-struct Properties {
+pub struct Properties {
     callback: Box<dyn crate::callback::Callback>,
     terminator: Box<dyn crate::terminators::Terminator>,
 }

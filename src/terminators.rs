@@ -124,8 +124,8 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility() <= self.options.tolerance
-            && state.get_dual_infeasibility() <= self.options.tolerance
+        if state.get_primal_infeasibility() <= self.options.tolerance / state.x.nrows() as E
+            && state.get_dual_infeasibility() <= self.options.tolerance / state.y.nrows() as E
         {
             Some(Status::Optimal)
         } else {

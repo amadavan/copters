@@ -144,7 +144,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
             values[col_ptrs[j]] = -sys_diag[j] as E; // Identity part for dx
         }
 
-        self.solver.factorize(self.mat.as_ref()).unwrap();
+        self.solver.factorize(self.mat.as_ref())?;
 
         self.resolve(state, rhs)
     }
