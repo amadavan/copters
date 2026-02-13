@@ -131,14 +131,12 @@ mod test {
         SimplicialSparseCholesky,
         mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
         mpc::mu_update::AdaptiveMuUpdate<'a>,
-        mpc::line_search::LPLineSearch<'a>,
     >;
     type MPCSupernodal<'a> = mpc::MehrotraPredictorCorrector<
         'a,
         SimplicialSparseCholesky,
         mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
         mpc::mu_update::AdaptiveMuUpdate<'a>,
-        mpc::line_search::LPLineSearch<'a>,
     >;
 
     #[matrix_parameterized_test(

@@ -152,14 +152,16 @@ pub fn explicit_options(attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
 
     let expanded = quote! {
-        #[derive(Debug, Clone)]
+        #[derive(Clone)]
         pub(crate) struct #internal_options_ident {
+            root: #name,
             #(#option_vals),*
         }
 
         impl std::convert::From<&#name> for #internal_options_ident {
             fn from(options: &#name) -> #internal_options_ident {
                 #internal_options_ident {
+                    root: options.clone(),
                     #(#option_def),*
                 }
             }

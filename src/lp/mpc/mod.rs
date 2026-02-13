@@ -9,7 +9,7 @@ use crate::{
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
         LinearProgram, LinearProgramSolver,
-        mpc::{augmented_system::AugmentedSystem, line_search::LineSearch, mu_update::MuUpdate},
+        mpc::{augmented_system::AugmentedSystem, mu_update::MuUpdate},
     },
 };
 
@@ -75,24 +75,20 @@ pub struct MehrotraPredictorCorrector<
     LinSolve: LinearSolver,
     Sys: AugmentedSystem<'a, LinSolve>,
     MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
 > {
     lp: &'a LinearProgram,
 
     system: Sys,
     mu_updater: MU,
-    line_search: LS,
+
+    aff_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
+    cc_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
 
     _solver: PhantomData<LinSolve>,
 }
 
-impl<
-    'a,
-    LinSolve: LinearSolver,
-    Sys: AugmentedSystem<'a, LinSolve>,
-    MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
-> MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>>
+    MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
     const DEFAULT_MAX_ITER: usize = 100;
 
@@ -128,14 +124,15 @@ impl<
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {
         // Iteration step code here
 
-        state.set_sigma_mu(Some(1.), Some(self.mu_updater.get(state)));
+        state.set_sigma_mu(E::from(0.), self.mu_updater.get(state));
+        state.set_safety_factor(E::from(1.));
 
         let mut residual = self.compute_residual(state);
 
         // Affine Step
         let aff_step = self.system.solve(state, &residual)?;
-        let alpha_aff_primal = self.line_search.get_primal_step_length(state, &aff_step);
-        let alpha_aff_dual = self.line_search.get_dual_step_length(state, &aff_step);
+        let (alpha_aff_primal, alpha_aff_dual) =
+            (self.aff_ls)(self.lp, &self.options.root, state, &aff_step);
 
         // Center-Corrector Step
         let mut state_aff = state.clone();
@@ -144,17 +141,15 @@ impl<
         state_aff.z_l += alpha_aff_dual * &aff_step.dz_l;
         state_aff.z_u += alpha_aff_dual * &aff_step.dz_u;
 
-        state.set_sigma_mu(
-            Some(pow(self.mu_updater.get(&state_aff) / state.mu.unwrap(), 3)),
-            state.mu,
-        );
+        state.set_sigma_mu(pow(self.mu_updater.get(&state_aff) / state.mu, 3), state.mu);
+        state.set_safety_factor(E::from(0.99));
 
         residual.cs_lower -= cwise_multiply_finite(aff_step.dz_l.as_ref(), aff_step.dx.as_ref());
         residual.cs_upper -= cwise_multiply_finite(aff_step.dz_u.as_ref(), aff_step.dx.as_ref());
 
         let corr_step = self.system.solve(state, &residual)?;
-        let alpha_corr_primal = self.line_search.get_primal_step_length(state, &corr_step);
-        let alpha_corr_dual = self.line_search.get_dual_step_length(state, &corr_step);
+        let (alpha_corr_primal, alpha_corr_dual) =
+            (self.cc_ls)(self.lp, &self.options.root, state, &corr_step);
 
         // Update the state with the corrector step and step lengths
         state.x += alpha_corr_primal * &corr_step.dx;
@@ -174,20 +169,18 @@ impl<
     }
 }
 
-impl<
-    'a,
-    LinSolve: LinearSolver,
-    Sys: AugmentedSystem<'a, LinSolve>,
-    MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
-> LinearProgramSolver<'a> for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>>
+    LinearProgramSolver<'a> for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
         Self {
             lp,
             system: Sys::new(lp),
             mu_updater: MU::new(lp, options),
-            line_search: LS::new(lp, options),
+
+            aff_ls: line_search::compute_max_step_length,
+            cc_ls: line_search::compute_max_step_length,
+
             options: options.into(),
 
             _solver: PhantomData,
@@ -195,13 +188,8 @@ impl<
     }
 }
 
-impl<
-    'a,
-    LinSolve: LinearSolver,
-    Sys: AugmentedSystem<'a, LinSolve>,
-    MU: MuUpdate<'a>,
-    LS: LineSearch<'a>,
-> Solver for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU, LS>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> Solver
+    for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
     /// Run the solver until convergence or maximum iterations.
     fn solve(

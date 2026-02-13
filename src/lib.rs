@@ -102,8 +102,9 @@ pub struct SolverState {
     dual_infeasibility: E,
 
     // Solver-specific state can be added here as needed
-    sigma: Option<E>,
-    mu: Option<E>,
+    sigma: E,
+    mu: E,
+    safety_factor: E,
 }
 
 impl SolverState {
@@ -123,8 +124,9 @@ impl SolverState {
             primal_infeasibility: E::from(0.),
             dual_infeasibility: E::from(0.),
 
-            sigma: None,
-            mu: None,
+            sigma: E::from(1.),
+            mu: E::from(1.),
+            safety_factor: E::from(1.),
         }
     }
 
@@ -156,13 +158,17 @@ impl SolverState {
         self.dual_infeasibility
     }
 
-    pub(crate) fn get_sigma_mu(&self) -> (Option<E>, Option<E>) {
+    pub(crate) fn get_sigma_mu(&self) -> (E, E) {
         (self.sigma, self.mu)
     }
 
-    pub(crate) fn set_sigma_mu(&mut self, sigma: Option<E>, mu: Option<E>) {
+    pub(crate) fn set_sigma_mu(&mut self, sigma: E, mu: E) {
         self.sigma = sigma;
         self.mu = mu;
+    }
+
+    pub(crate) fn set_safety_factor(&mut self, safety_factor: E) {
+        self.safety_factor = safety_factor;
     }
 }
 
