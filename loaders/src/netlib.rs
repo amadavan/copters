@@ -39,8 +39,8 @@
 /// let model = loader.get_lp("afiro").unwrap();
 /// ```
 use libc;
+use problemo::Problem;
 use problemo::common::{GlossProblemResult, IntoCommonProblem};
-use problemo::{Problem, ProblemResult};
 use std::collections::HashSet;
 use std::ffi::CString;
 use std::fs::OpenOptions;
@@ -78,97 +78,93 @@ pub static NETLIB_CASES: LazyLock<HashSet<String>> = LazyLock::new(|| {
     HashSet::from_iter(cases.iter().map(|s| s.to_string()))
 });
 
-pub struct NetlibLoader;
+fn get_cache_dir() -> String {
+    format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"))
+}
 
-impl NetlibLoader {
-    fn get_cache_dir() -> String {
-        format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"))
+pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
+    let cache_dir = get_cache_dir();
+
+    std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
+
+    if !NETLIB_CASES.contains(name) {
+        return Err(format!("Unknown Netlib case: {}", name).gloss());
     }
 
-    pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
-        let cache_dir = NetlibLoader::get_cache_dir();
-
-        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
-
-        if !NETLIB_CASES.contains(name) {
-            return Err(format!("Unknown Netlib case: {}", name).gloss());
+    // Download file if it does not exist
+    if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
+        let url = format!("{}{}", URL, name);
+        let response = reqwest::blocking::get(&url)
+            .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
+        if !response.status().is_success() {
+            return Err(format!("HTTP error: {} {}", response.status(), name).gloss());
         }
+        let bytes = response
+            .bytes()
+            .map_err(|e| format!("Failed to read response bytes: {}", e).gloss())?;
 
-        // Download file if it does not exist
-        if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
-            let url = format!("{}{}", URL, name);
-            let response = reqwest::blocking::get(&url)
-                .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
-            if !response.status().is_success() {
-                return Err(format!("HTTP error: {} {}", response.status(), name).gloss());
-            }
-            let bytes = response
-                .bytes()
-                .map_err(|e| format!("Failed to read response bytes: {}", e).gloss())?;
+        let file_name = format!("{}/{}.emps", &cache_dir, name);
 
-            let file_name = format!("{}/{}.emps", &cache_dir, name);
-
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&file_name)
-                .expect("Failed to create file");
-            file.write_all(&bytes).expect("Unable to write file.");
-            file.sync_all().expect("Failed to sync file");
-        }
-
-        Ok(Path::new(&format!("{}/{}.emps", &cache_dir, name)).to_owned())
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&file_name)
+            .expect("Failed to create file");
+        file.write_all(&bytes).expect("Unable to write file.");
+        file.sync_all().expect("Failed to sync file");
     }
 
-    fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
-        if !Path::new(&emps_path).exists() {
-            Err(format!("EMPS file does not exist: {}", emps_path).gloss())?;
-        }
+    Ok(Path::new(&format!("{}/{}.emps", &cache_dir, name)).to_owned())
+}
 
-        let infile1 = CString::new(emps_path).unwrap();
-        let infile1_ptr = infile1.into_raw();
-
-        let tmpfile = NamedTempFile::new().expect("Failed to create temporary file");
-        let out_path = CString::new(tmpfile.path().to_str().unwrap()).unwrap();
-        let out_mode = CString::new("w").unwrap();
-
-        // Serialize access — the C code uses global state and is not reentrant.
-        let _guard = EMPS_LOCK.lock().unwrap();
-
-        unsafe {
-            let out_file = libc::fopen(out_path.as_ptr(), out_mode.as_ptr());
-            if out_file.is_null() {
-                Err("Failed to open output file for EMPS decompression".to_string()).gloss()?;
-            }
-
-            set_emps_output(out_file);
-            emps_init();
-            process_from_filename(infile1_ptr);
-
-            libc::fflush(out_file);
-            libc::fclose(out_file);
-        }
-
-        Ok(tmpfile)
+fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
+    if !Path::new(&emps_path).exists() {
+        Err(format!("EMPS file does not exist: {}", emps_path).gloss())?;
     }
 
-    pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, String> {
-        NetlibLoader::download_compressed(name);
-        let emps_path = format!("{}/{}.emps", NetlibLoader::get_cache_dir(), name);
-        let mps_file = NetlibLoader::decompress_mps(&emps_path)
-            .map_err(|e| format!("Unable to decompress emps file: {}", e))?;
+    let infile1 = CString::new(emps_path).unwrap();
+    let infile1_ptr = infile1.into_raw();
 
-        let mut contents = String::new();
-        let mut file = mps_file.reopen().unwrap(); // This returns a File
-        file.read_to_string(&mut contents).unwrap();
+    let tmpfile = NamedTempFile::new().expect("Failed to create temporary file");
+    let out_path = CString::new(tmpfile.path().to_str().unwrap()).unwrap();
+    let out_mode = CString::new("w").unwrap();
 
-        let mps_parser = mps::Parser::<f32>::parse(&contents)
-            .map_err(|e| format!("Unable to parse mps file: {}", e))?;
-        let mps_model: mps::model::Model<f32> = mps_parser
-            .try_into()
-            .map_err(|e| format!("Failed to convert MPS model: {}", e))?;
-        Ok(mps_model)
+    // Serialize access — the C code uses global state and is not reentrant.
+    let _guard = EMPS_LOCK.lock().unwrap();
+
+    unsafe {
+        let out_file = libc::fopen(out_path.as_ptr(), out_mode.as_ptr());
+        if out_file.is_null() {
+            Err("Failed to open output file for EMPS decompression".to_string()).gloss()?;
+        }
+
+        set_emps_output(out_file);
+        emps_init();
+        process_from_filename(infile1_ptr);
+
+        libc::fflush(out_file);
+        libc::fclose(out_file);
     }
+
+    Ok(tmpfile)
+}
+
+pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, Problem> {
+    download_compressed(name)?;
+    let emps_path = format!("{}/{}.emps", get_cache_dir(), name);
+    let mps_file = decompress_mps(&emps_path)
+        .map_err(|e| format!("Unable to decompress emps file: {}", e).gloss())?;
+
+    let mut contents = String::new();
+    let mut file = mps_file.reopen().unwrap(); // This returns a File
+    file.read_to_string(&mut contents).unwrap();
+
+    let mps_parser = mps::Parser::<f32>::parse(&contents)
+        .map_err(|e| format!("Unable to parse mps file: {}", e).gloss())?;
+    let mps_model: mps::model::Model<f32> = mps_parser
+        .try_into()
+        .map_err(|e| format!("Failed to convert MPS model: {}", e).gloss())?;
+    Ok(mps_model)
 }
 
 #[cfg(test)]

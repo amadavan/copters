@@ -179,15 +179,19 @@ pub fn type_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStr
 #[derive(deluxe::ParseMetaItem)]
 struct MatrixParameterizedTestAttribute {
     types: TypeTuple,
-    args: ExprArray,
+    args: Option<ExprArray>,
+    named_args: Option<ExprArray>,
 }
 
 #[proc_macro_attribute]
 pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the attribute arguments
-    let MatrixParameterizedTestAttribute { types, args } =
-        deluxe::parse::<MatrixParameterizedTestAttribute>(attr)
-            .expect("Failed to parse MatrixParameterizedTestAttribute");
+    let MatrixParameterizedTestAttribute {
+        types,
+        args,
+        named_args,
+    } = deluxe::parse::<MatrixParameterizedTestAttribute>(attr)
+        .expect("Failed to parse MatrixParameterizedTestAttribute");
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
@@ -203,21 +207,78 @@ pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenS
         panic!("Function must have exactly one argument");
     }
 
-    let test_defs = types.elems.iter().zip(args.elems.iter()).map(|(ty, arg)| {
-        let test_name = syn::Ident::new(
-            &format!(
-                "{}_{}",
-                item_ident,
-                ty.to_token_stream().to_string().to_case(Case::Snake)
-            ),
-            item_ident.span(),
-        );
-        quote! {
-            #[test]
-            fn #test_name() {
-                #item_ident::<#ty>(#arg)
+    let default_args = ExprArray {
+        attrs: Vec::new(),
+        bracket_token: syn::token::Bracket::default(),
+        elems: syn::punctuated::Punctuated::new(),
+    };
+
+    // Build (name, arg_expr) pairs from both args and named_args
+    let unnamed: Vec<(String, &dyn ToTokens)> = args
+        .as_ref()
+        .unwrap_or_else(|| &default_args)
+        .elems
+        .iter()
+        .map(|arg| {
+            let mut s = arg.to_token_stream().to_string();
+            s = s.replace(
+                ['"', '\'', '.', '-', '[', ']', '(', ')', '{', '}', ','],
+                "_",
+            );
+            s = s.replace(' ', "_");
+            (s, arg as &dyn ToTokens)
+        })
+        .collect();
+
+    let named_parsed: Vec<(String, Box<dyn ToTokens>)> = named_args
+        .as_ref()
+        .unwrap_or_else(|| &default_args)
+        .elems
+        .iter()
+        .map(|elem| {
+            let tuple = match elem {
+                syn::Expr::Tuple(t) => t.clone(),
+                _ => panic!("named_args elements must be tuples like (\"name\", expr)"),
+            };
+            let args = tuple.elems[1].clone();
+            let name = match &tuple.elems[0] {
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) => s.value(),
+                _ => panic!("First element of named_args tuple must be a string literal"),
+            };
+            (name, Box::new(args) as Box<dyn ToTokens>)
+        })
+        .collect();
+
+    let named: Vec<(String, &dyn ToTokens)> = named_parsed
+        .iter()
+        .map(|(name, tuple)| (name.clone(), &**tuple as &dyn ToTokens))
+        .collect();
+
+    let all_args: Vec<(String, &dyn ToTokens)> =
+        unnamed.iter().chain(named.iter()).cloned().collect();
+
+    let test_defs = types.elems.iter().flat_map(|ty| {
+        let ty_name = ty.to_token_stream().to_string().to_case(Case::Snake);
+        all_args.iter().map(move |(arg_name, arg_expr)| {
+            let test_name = syn::Ident::new(
+                &format!(
+                    "{}_{}_{}",
+                    item_ident,
+                    ty_name,
+                    arg_name.to_case(Case::Snake)
+                ),
+                item_ident.span(),
+            );
+            quote! {
+                #[test]
+                fn #test_name() {
+                    #item_ident::<#ty>(#arg_expr)
+                }
             }
-        }
+        })
     });
 
     quote! {
