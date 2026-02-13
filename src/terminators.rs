@@ -14,16 +14,23 @@ use macros::{build_option_enum, explicit_options, use_option};
 
 use crate::{E, SolverOptions, SolverState, Status};
 
+/// Criterion for deciding when the solver should stop.
+///
+/// Checked once per iteration. Returns `Some(Status)` to stop, or `None` to continue.
 pub trait Terminator {
+    /// Creates a new terminator from solver options.
     fn new(options: &SolverOptions) -> Self
     where
         Self: Sized;
 
+    /// Called once before the first iteration to reset any internal state (e.g. timers).
     fn initialize(&mut self) {}
 
+    /// Returns `Some(status)` if the solver should stop, `None` otherwise.
     fn terminate(&mut self, state: &SolverState) -> Option<Status>;
 }
 
+/// A terminator that never triggers. The solver runs until the iteration limit.
 pub struct NullTerminator {}
 
 impl Terminator for NullTerminator {
@@ -104,6 +111,7 @@ impl Terminator for TimeOutTerminator {
     }
 }
 
+/// Terminates when both primal and dual infeasibility fall below `tolerance`.
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "tolerance", type_ = E, default = "1e-6", description = "Tolerance for convergence-based termination")]
 pub struct ConvergenceTerminator {}
@@ -126,6 +134,7 @@ impl Terminator for ConvergenceTerminator {
     }
 }
 
+/// Combines multiple terminators; stops on the first one that fires.
 pub struct MultiTerminator {
     terminators: Vec<Box<dyn Terminator>>,
 }

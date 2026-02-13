@@ -183,6 +183,42 @@ struct MatrixParameterizedTestAttribute {
     named_args: Option<ExprArray>,
 }
 
+/// ## `matrix_parameterized_test` Attribute Proc Macro
+///
+/// Generates a test for each combination of types and arguments (cartesian product).
+/// The annotated function must be generic over one type parameter and accept exactly one argument.
+///
+/// ### Parameters
+///
+/// - `types`: A tuple of types to parameterize over.
+/// - `args` (optional): An array of expressions passed directly as arguments. Test names are derived from the expression.
+/// - `named_args` (optional): An array of `("name", expr)` tuples. The string is used for the test name and `expr` is passed as the argument.
+///
+/// ### Examples
+///
+/// Using `args`:
+/// ```rust
+/// #[matrix_parameterized_test(
+///     types = (Vec<i32>, VecDeque<i32>),
+///     args = [build_small(), build_large()],
+/// )]
+/// fn test_len<T: Collection>(c: &T) {
+///     assert!(c.len() > 0);
+/// }
+/// ```
+///
+/// Using `named_args`:
+/// ```rust
+/// #[matrix_parameterized_test(
+///     types = (Vec<i32>, VecDeque<i32>),
+///     named_args = [("small", build_small()), ("large", build_large())],
+/// )]
+/// fn test_len<T: Collection>(c: &T) {
+///     assert!(c.len() > 0);
+/// }
+/// ```
+///
+/// Both generate tests like `test_len_vec_i_32_small`, `test_len_vec_i_32_large`, etc.
 #[proc_macro_attribute]
 pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the attribute arguments

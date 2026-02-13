@@ -2,14 +2,18 @@ use macros::build_option_enum;
 
 use crate::{SolverOptions, SolverState};
 
+/// Hook invoked once per solver iteration for logging, monitoring, or early stopping.
 pub trait Callback {
+    /// Creates a new callback from solver options.
     fn new(options: &SolverOptions) -> Self
     where
         Self: Sized;
 
+    /// Called at the end of each iteration with the current solver state.
     fn call(&mut self, state: &SolverState);
 }
 
+/// A callback that does nothing. Use when no per-iteration output is needed.
 pub struct NoOpCallback {}
 
 impl Callback for NoOpCallback {
@@ -22,6 +26,7 @@ impl Callback for NoOpCallback {
     }
 }
 
+/// Prints primal and dual infeasibility to stdout each iteration.
 pub struct ConvergenceOutput {}
 
 impl Callback for ConvergenceOutput {

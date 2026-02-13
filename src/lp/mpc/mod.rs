@@ -18,6 +18,7 @@ pub mod augmented_system;
 pub mod line_search;
 pub mod mu_update;
 
+/// A primal-dual search direction `(dx, dy, dz_l, dz_u)`.
 pub struct Step {
     dx: Col<E>,
     dy: Col<E>,
@@ -25,6 +26,14 @@ pub struct Step {
     dz_u: Col<E>,
 }
 
+/// KKT residuals for the current iterate.
+///
+/// ```text
+/// dual_feasibility      = c - A^T y - z_l - z_u
+/// primal_feasibility    = b - A x
+/// cs_lower              = Z_l (x - l)
+/// cs_upper              = Z_u (x - u)
+/// ```
 pub struct Residual {
     dual_feasibility: Col<E>,
     primal_feasibility: Col<E>,
@@ -50,6 +59,16 @@ impl Residual {
     }
 }
 
+/// Mehrotra predictor-corrector interior-point solver for linear programs.
+///
+/// Each iteration performs two solves of the augmented system:
+/// 1. **Affine (predictor) step** — a pure Newton step toward the boundary.
+/// 2. **Corrector step** — adjusts centering parameter `sigma` based on the
+///    affine step and adds second-order corrections to the complementarity.
+///
+/// The solver is generic over the linear system factorization (`Solver`),
+/// augmented system formulation (`System`), barrier parameter strategy (`MU`),
+/// and line search (`LS`).
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "MaxIterations", type_=usize, default="0", description="Maximum number of iterations (0 uses solver defaults).")]
 pub struct MehrotraPredictorCorrector<
@@ -78,6 +97,7 @@ impl<
 {
     const DEFAULT_MAX_ITER: usize = 100;
 
+    /// Computes the KKT residuals for the current primal-dual iterate.
     fn compute_residual(&self, state: &SolverState) -> Residual {
         // Compute the residuals based on the current state
         Residual {

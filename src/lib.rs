@@ -124,6 +124,7 @@ pub trait IterativeSolver {
 #[derive(Debug, Clone)]
 pub struct SolverState {
     status: Status,
+    nit: usize,
 
     x: Col<E>,
     y: Col<E>,
@@ -145,6 +146,7 @@ impl SolverState {
     pub fn new(x: Col<E>, y: Col<E>, z_l: Col<E>, z_u: Col<E>) -> Self {
         Self {
             status: Status::InProgress,
+            nit: 0,
 
             x,
             y,

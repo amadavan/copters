@@ -7,36 +7,55 @@ use crate::{E, I, IterativeSolver, SolverOptions};
 
 pub mod mpc;
 
+/// A linear program in standard form:
+///
+/// ```text
+/// min  c^T x
+/// s.t. A x = b
+///      l <= x <= u
+/// ```
 #[allow(non_snake_case)]
 pub struct LinearProgram {
-    // Fields representing the linear program
+    /// Objective function coefficients.
     c: Col<E>,
+    /// Constraint matrix (sparse, column-major).
     A: SparseColMat<I, E>,
+    /// Right-hand side of the equality constraints.
     b: Col<E>,
-    // Additional fields for bounds, variable types, etc.
+    /// Lower bounds on the variables.
     l: Col<E>,
+    /// Upper bounds on the variables.
     u: Col<E>,
 }
 
 #[allow(non_snake_case)]
 impl LinearProgram {
+    /// Creates a new linear program from the objective, constraints, and bounds.
     pub fn new(c: Col<E>, A: SparseColMat<I, E>, b: Col<E>, l: Col<E>, u: Col<E>) -> Self {
         Self { c, A, b, l, u }
     }
 
+    /// Returns the number of variables (columns of `A`).
     pub fn get_n_vars(&self) -> usize {
         self.c.nrows()
     }
 
+    /// Returns the number of constraints (rows of `A`).
     pub fn get_n_cons(&self) -> usize {
         self.b.nrows()
     }
 
+    /// Returns `(n_vars, n_cons)`.
     pub fn get_dims(&self) -> (usize, usize) {
         (self.get_n_vars(), self.get_n_cons())
     }
 }
 
+/// Converts an MPS model into a [`LinearProgram`].
+///
+/// Inequality constraints (`<=` / `>=`) are converted to equalities by
+/// introducing non-negative slack variables. The objective row (`Nr` type)
+/// is separated from the constraint rows.
 impl From<mps::model::Model<f32>> for LinearProgram {
     fn from(model: mps::model::Model<f32>) -> Self {
         // Get the bound type
@@ -188,7 +207,9 @@ impl From<mps::model::Model<f32>> for LinearProgram {
     }
 }
 
+/// Trait for solvers that operate on a [`LinearProgram`].
 pub trait LinearProgramSolver<'a>: IterativeSolver {
+    /// Creates a new solver instance for the given linear program and options.
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self;
 }
 

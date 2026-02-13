@@ -6,13 +6,23 @@ use crate::{
     lp::{LinearProgram, mpc::Step},
 };
 
+/// Strategy for computing primal and dual step lengths in a primal-dual
+/// interior-point method.
+///
+/// Implementations determine the maximum step size along a given direction
+/// that keeps the iterate strictly feasible.
 pub trait LineSearch<'a> {
+    /// Creates a new instance from the linear program and solver options.
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self
     where
         Self: Sized;
 
+    /// Returns the largest primal step length `alpha` in `(0, 1]` such that
+    /// `l <= x + alpha * dx <= u` remains strictly feasible.
     fn get_primal_step_length(&self, state: &SolverState, step: &Step) -> E;
 
+    /// Returns the largest dual step length `alpha` in `(0, 1]` such that
+    /// `z_l + alpha * dz_l >= 0` and `z_u + alpha * dz_u <= 0`.
     fn get_dual_step_length(&self, state: &SolverState, step: &Step) -> E;
 }
 
@@ -122,7 +132,7 @@ impl<'a> LineSearch<'a> for LPLineSearch<'a> {
 }
 
 // build_option_enum!(
-//     trait_ = LineSearch,
+//     trait_ = for <'a> LineSearch<'a>,
 //     name = "MPCLineSearch",
 //     variants = (LPLineSearch,),
 //     new_arguments = (&LinearProgram, &SolverOptions,),

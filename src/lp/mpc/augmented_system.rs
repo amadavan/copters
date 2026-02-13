@@ -20,16 +20,32 @@ use crate::{
     },
 };
 
+/// Formulation and factorization of the augmented KKT system used to
+/// compute search directions in a primal-dual interior-point method.
 pub trait AugmentedSystem<'a, Solver: LinearSolver> {
+    /// Creates a new instance, performing symbolic analysis of the sparsity pattern.
     fn new(lp: &'a LinearProgram) -> Self
     where
         Self: Sized;
 
+    /// Updates the numeric values, re-factorizes, and solves for a search direction.
     fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem>;
 
+    /// Solves for a search direction reusing the current factorization.
     fn resolve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem>;
 }
 
+/// Standard augmented system formulation.
+///
+/// Assembles and solves the `(n_var + n_con) x (n_var + n_con)` system:
+///
+/// ```text
+/// [ -D   A^T ] [ dx ] = [ r_d + z_l + z_u - sigma*mu*(X-L)^{-1}e - sigma*mu*(X-U)^{-1}e ]
+/// [  A    0  ] [ dy ]   [ r_p                                                              ]
+/// ```
+///
+/// where `D = Z_l (X-L)^{-1} + Z_u (X-U)^{-1}`. The dual directions
+/// `dz_l` and `dz_u` are recovered from `dx` after the solve.
 pub struct StandardSystem<'a, Solver: LinearSolver> {
     lp: &'a LinearProgram,
     mat: SparseColMat<I, E>,
