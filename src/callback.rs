@@ -40,16 +40,19 @@ impl Callback for ConvergenceOutput {
 
     fn init(&mut self, _state: &SolverState) {
         let header = format!(
-            "| {:4} | {:8} | {:8} | {:8} | {:8} | {:8} | {:8} |",
-            "nit", "dpri", "ddua", "pinf", "dinf", "csl", "csu"
+            "| {:5} | {:8} | {:8} | {:8} | {:8} | {:8} | {:8} |",
+            "NIT", "D_PRIMAL", "D_DUAL", "PRI_INF", "DUAL_INF", "CS_L", "CS_U"
         );
 
-        println!("{header}")
+        let separator = "-".repeat(header.len());
+        println!("");
+        println!("{header}");
+        println!("{separator}");
     }
 
     fn call(&mut self, state: &SolverState) {
         let txt = format!(
-            "| {:4} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
+            "| {:5} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
             state.nit,
             state.alpha_primal,
             state.alpha_dual,
@@ -61,7 +64,9 @@ impl Callback for ConvergenceOutput {
         println!("{txt}");
     }
 
-    fn finish(&mut self) {}
+    fn finish(&mut self) {
+        println!("");
+    }
 }
 
 build_option_enum!(

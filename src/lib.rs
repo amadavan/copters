@@ -49,8 +49,6 @@ impl Clone for Box<dyn OptionTrait> {
     }
 }
 
-build_options!(name = SolverOptions, registry_name = OPTION_REGISTRY);
-
 /// Status codes for optimization solvers.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Status {
@@ -190,3 +188,5 @@ pub struct Properties {
     callback: Box<dyn crate::callback::Callback>,
     terminator: Box<dyn crate::terminators::Terminator>,
 }
+
+build_options!(name = SolverOptions, registry_name = OPTION_REGISTRY);

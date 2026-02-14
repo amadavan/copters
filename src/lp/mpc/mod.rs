@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, Properties, Solver, SolverOptions, SolverState, Status,
+    E, I, Properties, Solver, SolverOptions, SolverState, Status,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
         LinearProgram, LinearProgramSolver,
@@ -69,7 +69,7 @@ impl Residual {
 /// augmented system formulation (`System`), barrier parameter strategy (`MU`),
 /// and line search (`LS`).
 #[explicit_options(name = SolverOptions)]
-#[use_option(name = "MaxIterations", type_=usize, default="0", description="Maximum number of iterations (0 uses solver defaults).")]
+#[use_option(name = "max_iterations", type_=I, default="0", description="Maximum number of iterations (0 uses solver defaults).")]
 pub struct MehrotraPredictorCorrector<
     'a,
     LinSolve: LinearSolver,
@@ -110,10 +110,10 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     }
 
     fn get_max_iter(&self) -> usize {
-        if self.options.MaxIterations < 1 {
+        if self.options.max_iterations < 1 {
             Self::DEFAULT_MAX_ITER
         } else {
-            self.options.MaxIterations as usize
+            self.options.max_iterations as usize
         }
     }
 
