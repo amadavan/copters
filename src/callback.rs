@@ -36,16 +36,16 @@ impl Callback for ConvergenceOutput {
 
     fn call(&mut self, state: &SolverState) {
         let txt = format!(
-            "| {:4}: | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
+            "| {:4} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
             state.nit,
             state.alpha_primal,
             state.alpha_dual,
             state.get_primal_infeasibility(),
             state.get_dual_infeasibility(),
-            state.get_complimentary_slackness_lower(),
-            state.get_complimentary_slackness_upper(),
+            state.get_complimentary_slack_lower(),
+            state.get_complimentary_slack_upper(),
         );
-        println!("{}", txt);
+        println!("{txt}");
     }
 }
 

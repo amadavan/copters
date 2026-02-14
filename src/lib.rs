@@ -100,8 +100,8 @@ pub struct SolverState {
 
     primal_infeasibility: E,
     dual_infeasibility: E,
-    complimentary_slackness_lower: E,
-    complimentary_slackness_upper: E,
+    complimentary_slack_lower: E,
+    complimentary_slack_upper: E,
 
     // Solver-specific state can be added here as needed
     sigma: E,
@@ -125,8 +125,8 @@ impl SolverState {
 
             primal_infeasibility: E::from(0.),
             dual_infeasibility: E::from(0.),
-            complimentary_slackness_lower: E::from(0.),
-            complimentary_slackness_upper: E::from(0.),
+            complimentary_slack_lower: E::from(0.),
+            complimentary_slack_upper: E::from(0.),
 
             sigma: E::from(1.),
             mu: E::from(1.),
@@ -162,12 +162,12 @@ impl SolverState {
         self.dual_infeasibility
     }
 
-    pub fn get_complimentary_slackness_lower(&self) -> E {
-        self.complimentary_slackness_lower
+    pub fn get_complimentary_slack_lower(&self) -> E {
+        self.complimentary_slack_lower
     }
 
-    pub fn get_complimentary_slackness_upper(&self) -> E {
-        self.complimentary_slackness_upper
+    pub fn get_complimentary_slack_upper(&self) -> E {
+        self.complimentary_slack_upper
     }
 
     pub(crate) fn get_sigma_mu(&self) -> (E, E) {

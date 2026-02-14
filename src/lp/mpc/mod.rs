@@ -162,8 +162,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         let residual = self.compute_residual(state);
         state.primal_infeasibility = residual.get_primal_feasibility().norm_l2();
         state.dual_infeasibility = residual.get_dual_feasibility().norm_l2();
-        state.complimentary_slackness_lower = residual.get_complementarity_lower().norm_l2();
-        state.complimentary_slackness_upper = residual.get_complementarity_upper().norm_l2();
+        state.complimentary_slack_lower = residual.get_complementarity_lower().norm_l2();
+        state.complimentary_slack_upper = residual.get_complementarity_upper().norm_l2();
 
         state.status = Status::InProgress;
 
@@ -202,6 +202,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         self.initialize(state);
         state.nit = 0;
         state.set_status(Status::InProgress);
+        properties.callback.init(state);
 
         let max_iter = self.get_max_iter();
         for iter in 0..max_iter {
