@@ -1,4 +1,4 @@
-# Copters
+![Logo](assets/copters-banner.svg)
 
 [![Crates.io](https://img.shields.io/crates/v/copters.svg)](https://crates.io/crates/copters)
 [![Documentation](https://docs.rs/copters/badge.svg)](https://docs.rs/copters)

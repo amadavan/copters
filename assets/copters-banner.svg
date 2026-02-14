@@ -1,0 +1,74 @@
+<svg viewBox="0 0 5120 656" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background - light -->
+  <rect width="5120" height="656" fill="#f5f5f5"/>
+  
+  <!-- Import Google Font -->
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&amp;display=swap');
+    </style>
+  </defs>
+  
+  <!-- Logo group - centered, scaled, and tilted down more -->
+  <g transform="translate(2560, 360) scale(1.9) rotate(-5) translate(-375, -240)">
+  
+  <!-- Text - COPTERS italic with C adjusted -->
+  <g fill="#000000" font-family="'Nunito', sans-serif" font-style="italic">
+    <text x="105" y="280" font-size="90" font-weight="700" letter-spacing="-4">C</text>
+    <text x="170" y="280" font-size="150" font-weight="400" letter-spacing="-6">OPT</text>
+    <text x="435" y="280" font-size="90" font-weight="700" letter-spacing="-4">ERS</text>
+  </g>
+  
+  <!-- Helicopter rotor blades - adjusted for current shape -->
+  <g fill="none" stroke="#000000" stroke-width="11" stroke-linecap="round">
+    <!-- Rotor mast - centered over body -->
+    <line x1="380" y1="168" x2="380" y2="144" stroke-width="11"/>
+    
+    <!-- Left blade - scaled appropriately -->
+    <path d="M 380,154 C 320,152 220,148 120,146 C 70,145 30,145 10,146"/>
+    
+    <!-- Right blade - scaled appropriately -->
+    <path d="M 380,154 C 440,152 540,148 640,146 C 690,145 730,145 750,146"/>
+  </g>
+  
+  <!-- Military helicopter body outline - back moved 10px right -->
+  <!-- Straight segment -->
+  <path d="M 470,179.5 L 520,179.5" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Curve segment - sharper angle -->
+  <path d="M 520,179.5 C 550,179.5 590,195 620,212 C 630,217 635,218 640,218" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Straight angled segment to tail -->
+  <path d="M 640,218 L 670,230" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Bottom line - adjusted for tail back position -->
+  <path d="M 135,303 L 538,303 Q 563,303 578,298.5 Q 588,294.5 596,293 Q 603,291.8 608,291.5 L 682,295.5" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Tail structure - more rounded tip, back moved farther left -->
+  <!-- Front from body endpoint to tip with more rounded top -->
+  <path d="M 670,230 C 690,230 740,205 770,180 C 795,163 820,154 835,152 C 842,151 848,151 852,151" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Back rounded and slightly angled inward - moved farther left -->
+  <path d="M 852,151 C 857,152 847,184 840,224 C 835,254 827,279 817,291 C 810,297 762,296 732,296 Q 717,296 702,296 Q 689,296 682,295.5" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Nose bottom curve - adjusted right 5px -->
+  <path d="M 150,303 C 105,303 30,300 13,288 C 3,280 -5,275 -5,270" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Nose top curve - adjusted right 5px -->
+  <path d="M -5,270 C -5,260 15,240 45,230 C 75,223 125,205 150,197 C 160,194 167,192 172,191" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  <!-- Windscreen - horizontal top control angle -->
+  <path d="M 172,191 Q 180,185 187,182 Q 193,180.5 195,179.5 C 195,179.5 195,179.5 195,179.5" 
+        stroke="#000000" stroke-width="11" stroke-linecap="round" fill="none"/>
+  
+  </g>
+  
+</svg>
