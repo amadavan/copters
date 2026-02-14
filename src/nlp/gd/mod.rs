@@ -141,7 +141,7 @@ mod tests {
     use crate::{
         callback::{Callback, ConvergenceOutput},
         nlp::gd::stepsize::ConstantStepSize,
-        terminators::{MultiTerminator, SlowProgressTerminator, Terminator},
+        terminators::{SlowProgressTerminator, Terminator},
     };
 
     use super::*;

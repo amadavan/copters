@@ -50,7 +50,7 @@ pub fn value_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenSt
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let _item_attrs = &item_fn.attrs;
+    let item_attrs = &item_fn.attrs;
     let item_vis = &item_fn.vis;
     let item_sig = &item_fn.sig;
     let item_block = &item_fn.block;
@@ -77,6 +77,7 @@ pub fn value_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenSt
         );
         quote! {
             #[test]
+            #(#item_attrs)*
             fn #test_name() {
                 #item_ident(#val)
             }
@@ -139,7 +140,7 @@ pub fn type_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStr
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let _item_attrs = &item_fn.attrs;
+    let item_attrs = &item_fn.attrs;
     let item_vis = &item_fn.vis;
     let item_sig = &item_fn.sig;
     let item_block = &item_fn.block;
@@ -162,6 +163,7 @@ pub fn type_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenStr
         );
         quote! {
             #[test]
+            #(#item_attrs)*
             fn #test_name() {
                 #item_ident::<#val>()
             }
@@ -231,7 +233,7 @@ pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenS
 
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let _item_attrs = &item_fn.attrs;
+    let item_attrs = &item_fn.attrs;
     let item_vis = &item_fn.vis;
     let item_sig = &item_fn.sig;
     let item_block = &item_fn.block;
@@ -310,6 +312,7 @@ pub fn matrix_parameterized_test(attr: TokenStream, item: TokenStream) -> TokenS
             );
             quote! {
                 #[test]
+                #(#item_attrs)*
                 fn #test_name() {
                     #item_ident::<#ty>(#arg_expr)
                 }

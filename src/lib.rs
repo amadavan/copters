@@ -85,6 +85,7 @@ pub trait Solver {
 }
 
 #[derive(Debug, Clone)]
+#[allow(non_snake_case, unused)]
 pub struct SolverState {
     status: Status,
     nit: usize,
@@ -113,7 +114,6 @@ pub struct SolverState {
     df: Option<Col<E>>,
     dg: Option<SparseColMat<I, E>>,
     h: Option<SparseColMat<I, E>>,
-    #[allow(non_snake_case)]
     dL: Option<Col<E>>,
 }
 
