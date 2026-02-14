@@ -134,6 +134,36 @@ impl Terminator for ConvergenceTerminator {
     }
 }
 
+#[explicit_options(name = SolverOptions)]
+#[use_option(name = "slow_progress_tolerance", type_ = E, default = "1e-8", description = "Tolerance for detecting slow progress in primal and dual infeasibility.")]
+pub struct SlowProgressTerminator {
+    prev_state: Option<SolverState>,
+}
+
+impl Terminator for SlowProgressTerminator {
+    fn new(options: &SolverOptions) -> Self {
+        Self {
+            prev_state: None,
+            options: options.into(),
+        }
+    }
+
+    fn terminate(&mut self, state: &SolverState) -> Option<Status> {
+        if let Some(prev) = &self.prev_state {
+            let primal_diff =
+                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).abs();
+            let dual_diff = (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).abs();
+            if primal_diff <= self.options.slow_progress_tolerance
+                && dual_diff <= self.options.slow_progress_tolerance
+            {
+                return Some(Status::Optimal);
+            }
+        }
+        self.prev_state = Some(state.clone());
+        None
+    }
+}
+
 /// Combines multiple terminators; stops on the first one that fires.
 pub struct MultiTerminator {
     terminators: Vec<Box<dyn Terminator>>,
