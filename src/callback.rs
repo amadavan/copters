@@ -9,8 +9,12 @@ pub trait Callback {
     where
         Self: Sized;
 
+    fn init(&mut self, _state: &SolverState) {}
+
     /// Called at the end of each iteration with the current solver state.
     fn call(&mut self, state: &SolverState);
+
+    fn finish(&mut self) {}
 }
 
 /// A callback that does nothing. Use when no per-iteration output is needed.
@@ -34,6 +38,15 @@ impl Callback for ConvergenceOutput {
         Self {}
     }
 
+    fn init(&mut self, _state: &SolverState) {
+        let header = format!(
+            "| {:4} | {:8} | {:8} | {:8} | {:8} | {:8} | {:8} |",
+            "nit", "dpri", "ddua", "pinf", "dinf", "csl", "csu"
+        );
+
+        println!("{header}")
+    }
+
     fn call(&mut self, state: &SolverState) {
         let txt = format!(
             "| {:4} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
@@ -47,6 +60,8 @@ impl Callback for ConvergenceOutput {
         );
         println!("{txt}");
     }
+
+    fn finish(&mut self) {}
 }
 
 build_option_enum!(
