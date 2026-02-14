@@ -56,8 +56,8 @@ pub fn compute_max_step_length<'a>(
         alpha_dual = E::min(alpha_dual, alpha_lb);
     });
 
-    let alpha_primal = E::min(E::from(1.), state.safety_factor * alpha_primal);
-    let alpha_dual = E::min(E::from(1.), state.safety_factor * alpha_dual);
+    let alpha_primal = E::min(E::from(1.), state.safety_factor.unwrap() * alpha_primal);
+    let alpha_dual = E::min(E::from(1.), state.safety_factor.unwrap() * alpha_dual);
 
     (alpha_primal, alpha_dual)
 }

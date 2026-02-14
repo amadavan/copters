@@ -4,6 +4,7 @@ use std::any::Any;
 use std::ops::Div;
 
 use dyn_clone::DynClone;
+use faer::sparse::SparseColMat;
 use faer::traits::ComplexField;
 use faer::traits::num_traits::{Float, PrimInt};
 use faer::{Col, Index};
@@ -101,10 +102,19 @@ pub struct SolverState {
     complimentary_slack_lower: E,
     complimentary_slack_upper: E,
 
-    // Solver-specific state can be added here as needed
-    sigma: E,
-    mu: E,
-    safety_factor: E,
+    // IPM-specific state
+    sigma: Option<E>,
+    mu: Option<E>,
+    safety_factor: Option<E>,
+
+    // NLP-specific state
+    f: Option<E>,
+    g: Option<Col<E>>,
+    df: Option<Col<E>>,
+    dg: Option<SparseColMat<I, E>>,
+    h: Option<SparseColMat<I, E>>,
+    #[allow(non_snake_case)]
+    dL: Option<Col<E>>,
 }
 
 impl SolverState {
@@ -126,9 +136,16 @@ impl SolverState {
             complimentary_slack_lower: E::from(0.),
             complimentary_slack_upper: E::from(0.),
 
-            sigma: E::from(1.),
-            mu: E::from(1.),
-            safety_factor: E::from(1.),
+            sigma: None,
+            mu: None,
+            safety_factor: None,
+
+            f: None,
+            g: None,
+            df: None,
+            dg: None,
+            h: None,
+            dL: None,
         }
     }
 
@@ -167,23 +184,10 @@ impl SolverState {
     pub fn get_complimentary_slack_upper(&self) -> E {
         self.complimentary_slack_upper
     }
-
-    pub(crate) fn get_sigma_mu(&self) -> (E, E) {
-        (self.sigma, self.mu)
-    }
-
-    pub(crate) fn set_sigma_mu(&mut self, sigma: E, mu: E) {
-        self.sigma = sigma;
-        self.mu = mu;
-    }
-
-    pub(crate) fn set_safety_factor(&mut self, safety_factor: E) {
-        self.safety_factor = safety_factor;
-    }
 }
 
-#[use_option(name="Callback", type_=crate::callback::Callbacks, description="Callback for the solver.")]
-#[use_option(name="Terminator", type_=crate::terminators::Terminators, default="NullTerminator", description="Terminator for the solver.")]
+#[use_option(name="callback", type_=crate::callback::Callbacks, description="Callback for the solver.")]
+#[use_option(name="terminator", type_=crate::terminators::Terminators, default="NullTerminator", description="Terminator for the solver.")]
 pub struct Properties {
     callback: Box<dyn crate::callback::Callback>,
     terminator: Box<dyn crate::terminators::Terminator>,

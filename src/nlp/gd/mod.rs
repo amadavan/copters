@@ -49,13 +49,16 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
     /// Lagrangian, projects `x` onto the bound constraints, and computes
     /// primal/dual infeasibility measures.
     fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
-        let df = self.nlp.df(&state.x);
-        let g = self.nlp.g(&state.x);
-        let dg = self.nlp.dg(&state.x);
+        state.df = Some(self.nlp.df(&state.x));
+        state.g = Some(self.nlp.g(&state.x));
+        state.dg = Some(self.nlp.dg(&state.x));
+
+        state.dL =
+            Some(state.df.as_ref().unwrap() + state.dg.as_ref().unwrap().transpose() * &state.y); // Gradient of the Lagrangian w.r.t. x
 
         let step_size = self.step.compute(state);
-        state.x -= step_size * (&df + &dg.transpose() * &state.y); // Simple gradient step on the objective
-        state.y += step_size * &g; // Simple gradient step on the constraints
+        state.x -= step_size * state.dL.as_ref().unwrap(); // Simple gradient step on the objective
+        state.y += step_size * state.g.as_ref().unwrap(); // Simple gradient step on the constraints
 
         // Ensure feasibility of the primal variables
         if let Some(l) = self.nlp.l() {
@@ -74,11 +77,18 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
         }
 
         // Update the state
-        state.primal_infeasibility = g
+        state.primal_infeasibility = state
+            .g
+            .as_ref()
+            .unwrap()
             .iter()
-            .filter(|&&val| val > 0.0)
-            .fold(E::from(0.), |a, b| a + b);
-        state.dual_infeasibility = df.iter().fold(E::from(0.), |a, b| a + b.abs());
+            .fold(E::from(0.), |a, b| a + b.abs());
+        state.dual_infeasibility = state
+            .df
+            .as_ref()
+            .unwrap()
+            .iter()
+            .fold(E::from(0.), |a, b| a + b.abs());
         state.complimentary_slack_lower = 0.;
         state.complimentary_slack_upper = 0.;
 
@@ -158,25 +168,12 @@ mod tests {
             None,
         );
 
-        let mut state = SolverState {
-            x: vec![0.0, 0.0].into_iter().collect(),
-            y: vec![1.0].into_iter().collect(),
-            nit: 0,
-            status: Status::InProgress,
-            alpha_primal: 0.0,
-            alpha_dual: 0.0,
-
-            primal_infeasibility: 0.0,
-            dual_infeasibility: 0.0,
-            complimentary_slack_lower: 0.0,
-            complimentary_slack_upper: 0.0,
-
-            mu: 0.0,
-            sigma: 0.0,
-            safety_factor: 0.0,
-            z_l: vec![0.0].into_iter().collect(),
-            z_u: vec![0.0].into_iter().collect(),
-        };
+        let mut state = SolverState::new(
+            vec![0.0, 0.0].into_iter().collect(),
+            vec![1.0].into_iter().collect(),
+            vec![0.0].into_iter().collect(),
+            vec![0.0].into_iter().collect(),
+        );
 
         let options = SolverOptions::new();
         let mut properties = Properties {

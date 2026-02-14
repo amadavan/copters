@@ -124,8 +124,9 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {
         // Iteration step code here
 
-        state.set_sigma_mu(E::from(0.), self.mu_updater.get(state));
-        state.set_safety_factor(E::from(1.));
+        state.sigma = Some(E::from(0.));
+        state.mu = Some(self.mu_updater.get(state));
+        state.safety_factor = Some(E::from(1.));
 
         let mut residual = self.compute_residual(state);
 
@@ -141,8 +142,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state_aff.z_l += alpha_aff_dual * &aff_step.dz_l;
         state_aff.z_u += alpha_aff_dual * &aff_step.dz_u;
 
-        state.set_sigma_mu(pow(self.mu_updater.get(&state_aff) / state.mu, 3), state.mu);
-        state.set_safety_factor(E::from(0.99));
+        state.sigma = Some(pow(self.mu_updater.get(&state_aff) / state.mu.unwrap_or(E::from(1.)), 3));
+        state.safety_factor = Some(E::from(0.99)); // Reduce step length to maintain stability
 
         residual.cs_lower -= cwise_multiply_finite(aff_step.dz_l.as_ref(), aff_step.dx.as_ref());
         residual.cs_upper -= cwise_multiply_finite(aff_step.dz_u.as_ref(), aff_step.dx.as_ref());
