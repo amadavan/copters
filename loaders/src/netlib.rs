@@ -41,6 +41,7 @@
 use libc;
 use problemo::Problem;
 use problemo::common::{GlossProblemResult, IntoCommonProblem};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::OpenOptions;
@@ -48,6 +49,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use tempfile::NamedTempFile;
+
+use crate::{get_cache_dir, get_data_dir};
 
 unsafe extern "C" {
     pub fn set_emps_output(f: *mut libc::FILE);
@@ -60,118 +63,49 @@ static EMPS_LOCK: Mutex<()> = Mutex::new(());
 
 pub static URL: &str = "https://netlib.org/lp/data/";
 
-pub static NETLIB_CASES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert("agg".to_string(), "agg".to_string());
-    m.insert("ship04l".to_string(), "ship04l".to_string());
-    m.insert("d2q06c".to_string(), "d2q06c".to_string());
-    m.insert("e226".to_string(), "e226".to_string());
-    m.insert("25fv47".to_string(), "25fv47".to_string());
-    m.insert("bore3d".to_string(), "bore3d".to_string());
-    m.insert("ganges".to_string(), "ganges".to_string());
-    m.insert("adlittle".to_string(), "adlittle".to_string());
-    m.insert("forplan".to_string(), "forplan".to_string());
-    m.insert("sc205".to_string(), "sc205".to_string());
-    m.insert("scrs8".to_string(), "scrs8".to_string());
-    m.insert("wood1p".to_string(), "wood1p".to_string());
-    m.insert("boeing1".to_string(), "boeing1".to_string());
-    m.insert("kb2".to_string(), "kb2".to_string());
-    m.insert("ship08s".to_string(), "ship08s".to_string());
-    m.insert("scfxm1".to_string(), "scfxm1".to_string());
-    m.insert("agg2".to_string(), "agg2".to_string());
-    m.insert("finnis".to_string(), "finnis".to_string());
-    m.insert("dfl001".to_string(), "dfl001".to_string());
-    m.insert("pilot87".to_string(), "pilot87".to_string());
-    m.insert("sctap1".to_string(), "sctap1".to_string());
-    m.insert("agg3".to_string(), "agg3".to_string());
-    m.insert("grow7".to_string(), "grow7".to_string());
-    m.insert("scorpion".to_string(), "scorpion".to_string());
-    m.insert("maros".to_string(), "maros".to_string());
-    m.insert("shell".to_string(), "shell".to_string());
-    m.insert("greenbeb".to_string(), "greenbeb".to_string());
-    m.insert("sc50b".to_string(), "sc50b".to_string());
-    m.insert("recipe".to_string(), "recipe".to_string());
-    m.insert("sierra".to_string(), "sierra".to_string());
-    m.insert("scagr25".to_string(), "scagr25".to_string());
-    m.insert("modszk1".to_string(), "modszk1".to_string());
-    m.insert("ship12l".to_string(), "ship12l".to_string());
-    m.insert("stair".to_string(), "stair".to_string());
-    m.insert("cycle".to_string(), "cycle".to_string());
-    m.insert("sc105".to_string(), "sc105".to_string());
-    m.insert("pilot_ja".to_string(), "pilot.ja".to_string());
-    m.insert("beaconfd".to_string(), "beaconfd".to_string());
-    m.insert("czprob".to_string(), "czprob".to_string());
-    m.insert("pilot_we".to_string(), "pilot.we".to_string());
-    m.insert("standgub".to_string(), "standgub".to_string());
-    m.insert("standmps".to_string(), "standmps".to_string());
-    m.insert("scsd8".to_string(), "scsd8".to_string());
-    m.insert("woodw".to_string(), "woodw".to_string());
-    m.insert("scsd6".to_string(), "scsd6".to_string());
-    m.insert("scsd1".to_string(), "scsd1".to_string());
-    m.insert("share2b".to_string(), "share2b".to_string());
-    m.insert("gfrd_pnc".to_string(), "gfrd-pnc".to_string());
-    m.insert("bnl2".to_string(), "bnl2".to_string());
-    m.insert("stocfor2".to_string(), "stocfor2".to_string());
-    m.insert("nesm".to_string(), "nesm".to_string());
-    m.insert("share1b".to_string(), "share1b".to_string());
-    m.insert("ship04s".to_string(), "ship04s".to_string());
-    m.insert("grow15".to_string(), "grow15".to_string());
-    m.insert("maros_r7".to_string(), "maros-r7".to_string());
-    m.insert("blend".to_string(), "blend".to_string());
-    m.insert("lotfi".to_string(), "lotfi".to_string());
-    m.insert("standata".to_string(), "standata".to_string());
-    m.insert("d6cube".to_string(), "d6cube".to_string());
-    m.insert("degen3".to_string(), "degen3".to_string());
-    m.insert("capri".to_string(), "capri".to_string());
-    m.insert("grow22".to_string(), "grow22".to_string());
-    m.insert("etamacro".to_string(), "etamacro".to_string());
-    m.insert("ship08l".to_string(), "ship08l".to_string());
-    m.insert("afiro".to_string(), "afiro".to_string());
-    m.insert("degen2".to_string(), "degen2".to_string());
-    m.insert("boeing2".to_string(), "boeing2".to_string());
-    m.insert("fit1d".to_string(), "fit1d".to_string());
-    m.insert("scfxm2".to_string(), "scfxm2".to_string());
-    m.insert("sctap3".to_string(), "sctap3".to_string());
-    m.insert("fit1p".to_string(), "fit1p".to_string());
-    m.insert("pilot".to_string(), "pilot".to_string());
-    m.insert("fit2d".to_string(), "fit2d".to_string());
-    m.insert("sctap2".to_string(), "sctap2".to_string());
-    m.insert("scfxm3".to_string(), "scfxm3".to_string());
-    m.insert("brandy".to_string(), "brandy".to_string());
-    m.insert("greenbea".to_string(), "greenbea".to_string());
-    m.insert("tuff".to_string(), "tuff".to_string());
-    m.insert("sc50a".to_string(), "sc50a".to_string());
-    m.insert("vtp_base".to_string(), "vtp.base".to_string());
-    m.insert("pilotnov".to_string(), "pilotnov".to_string());
-    m.insert("ship12s".to_string(), "ship12s".to_string());
-    m.insert("seba".to_string(), "seba".to_string());
-    m.insert("fffff800".to_string(), "fffff800".to_string());
-    m.insert("israel".to_string(), "israel".to_string());
-    m.insert("perold".to_string(), "perold".to_string());
-    m.insert("pilot4".to_string(), "pilot4".to_string());
-    m.insert("scagr7".to_string(), "scagr7".to_string());
-    m.insert("bandm".to_string(), "bandm".to_string());
-    m.insert("bnl1".to_string(), "bnl1".to_string());
-    m.insert("stocfor1".to_string(), "stocfor1".to_string());
-    m
-});
-
-fn get_cache_dir() -> String {
-    format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"))
+#[derive(Debug, Deserialize)]
+pub struct Record {
+    name: String,
+    rows: usize,
+    columns: usize,
+    nonzeros: usize,
+    bytes: usize,
+    bound_types: Option<String>,
+    optimal_value: Option<f64>,
 }
 
-pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
+pub static NETLIB_CASE_DATA: LazyLock<HashMap<String, Record>> = LazyLock::new(|| {
+    let mut case_data = HashMap::new();
+    let csv_path = format!("{}/netlib.csv", get_data_dir());
+    let mut rdr = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(&csv_path)
+        .unwrap();
+    for results in rdr.deserialize() {
+        let record: Record = results.unwrap();
+        case_data.insert(record.name.to_lowercase(), record);
+    }
+    case_data
+});
+
+fn get_internal_name(name: &str) -> String {
+    name.replace('.', "_").replace('-', "_")
+}
+
+fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
     let cache_dir = get_cache_dir();
 
     std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
-    if !NETLIB_CASES.contains_key(name) {
+    if !NETLIB_CASE_DATA.contains_key(name) {
         return Err(format!("Unknown Netlib case: {}", name).gloss());
     }
 
     // Download file if it does not exist
-    if !Path::new(&format!("{}/{}.emps", &cache_dir, name)).exists() {
-        let url = format!("{}{}", URL, NETLIB_CASES.get(name).unwrap());
+    let internal_name = get_internal_name(name);
+    let cached_path = Path::new(&format!("{}/{}.emps", &cache_dir, internal_name)).to_owned();
+    if !Path::new(&format!("{}/{}.emps", &cache_dir, internal_name)).exists() {
+        let url = format!("{}{}", URL, name);
         let response = reqwest::blocking::get(&url)
             .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
         if !response.status().is_success() {
@@ -181,18 +115,16 @@ pub fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
             .bytes()
             .map_err(|e| format!("Failed to read response bytes: {}", e).gloss())?;
 
-        let file_name = format!("{}/{}.emps", &cache_dir, name);
-
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&file_name)
+            .open(cached_path.to_str().unwrap())
             .expect("Failed to create file");
         file.write_all(&bytes).expect("Unable to write file.");
         file.sync_all().expect("Failed to sync file");
     }
 
-    Ok(Path::new(&format!("{}/{}.emps", &cache_dir, name)).to_owned())
+    Ok(cached_path)
 }
 
 fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
@@ -227,10 +159,57 @@ fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
     Ok(tmpfile)
 }
 
-pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, Problem> {
-    download_compressed(name)?;
+#[allow(unused)]
+pub struct MPSCase {
+    model: mps::model::Model<f32>,
+    name: String,
+    rows: usize,
+    columns: usize,
+    nonzeros: usize,
+    bytes: usize,
+    bound_types: Option<String>,
+    optimal_value: Option<f64>,
+}
 
-    let emps_path = format!("{}/{}.emps", get_cache_dir(), name);
+impl MPSCase {
+    pub fn model(&self) -> &mps::model::Model<f32> {
+        &self.model
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
+    pub fn nonzeros(&self) -> usize {
+        self.nonzeros
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub fn bound_types(&self) -> Option<&String> {
+        self.bound_types.as_ref()
+    }
+
+    pub fn optimal_value(&self) -> Option<f64> {
+        self.optimal_value
+    }
+}
+
+pub fn get_case(name: &str) -> Result<MPSCase, Problem> {
+    let path = download_compressed(&name.to_lowercase())?;
+
+    // Convert name to internal name and get the data
+    let emps_path = path.to_str().unwrap();
     let mps_file = decompress_mps(&emps_path)
         .map_err(|e| format!("Unable to decompress emps file: {}", e).gloss())?;
 
@@ -243,7 +222,70 @@ pub fn get_lp(name: &str) -> Result<mps::model::Model<f32>, Problem> {
     let mps_model: mps::model::Model<f32> = mps_parser
         .try_into()
         .map_err(|e| format!("Failed to convert MPS model: {}", e).gloss())?;
-    Ok(mps_model)
+
+    // Get metadata from CSV
+    let Record {
+        rows,
+        columns,
+        nonzeros,
+        bytes,
+        bound_types,
+        optimal_value,
+        ..
+    } = NETLIB_CASE_DATA
+        .get(name)
+        .ok_or_else(|| "Unable to find metadata for case".gloss())?;
+
+    Ok(MPSCase {
+        model: mps_model,
+        name: name.to_string(),
+        rows: *rows,
+        columns: *columns,
+        nonzeros: *nonzeros,
+        bytes: *bytes,
+        bound_types: bound_types.clone(),
+        optimal_value: *optimal_value,
+    })
+}
+
+pub fn get_n_vars(name: &str) -> Result<usize, Problem> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .map(|record| record.columns)
+        .ok_or_else(|| "Unable to find metadata for case".gloss())
+}
+
+pub fn get_n_constraints(name: &str) -> Result<usize, Problem> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .map(|record| record.rows)
+        .ok_or_else(|| "Unable to find metadata for case".gloss())
+}
+
+pub fn get_n_nonzeros(name: &str) -> Result<usize, Problem> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .map(|record| record.nonzeros)
+        .ok_or_else(|| "Unable to find metadata for case".gloss())
+}
+
+pub fn get_n_bytes(name: &str) -> Result<usize, Problem> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .map(|record| record.bytes)
+        .ok_or_else(|| "Unable to find metadata for case".gloss())
+}
+
+pub fn get_bound_types(name: &str) -> Option<&String> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .and_then(|record| record.bound_types.as_ref())
+}
+
+pub fn get_optimal_value(name: &str) -> Option<f64> {
+    NETLIB_CASE_DATA
+        .get(name)
+        .and_then(|record| record.optimal_value)
 }
 
 #[cfg(test)]
@@ -252,203 +294,101 @@ mod tests {
 
     #[value_parameterized_test(
       values = [
-          "israel",
-          "scagr7",
-          "ship08s",
-          "vtp_base",
-          "bnl1",
-          "pilot",
-          "standgub",
-          "scsd1",
-          "sc205",
-          "adlittle",
-          "ship04s",
-          "scfxm2",
-          "agg",
-          "agg3",
-          "scorpion",
-          "shell",
-          "greenbeb",
-          "fit2d",
-          "bandm",
-          "share2b",
-          "sc105",
-          "nesm",
-          "boeing2",
-          "sc50b",
-          "scfxm3",
-          "stair",
-          "stocfor1",
-          "maros",
-          "bore3d",
-          "scsd8",
-          "stocfor2",
           "25fv47",
-          "sctap1",
-          "ship12l",
+          "adlittle",
+          "afiro",
+          "agg",
+          "agg2",
+          "agg3",
+          "bandm",
           "beaconfd",
-          "modszk1",
+          "blend",
+          "bnl1",
+          "bnl2",
+          "boeing1",
+          "boeing2",
+          "bore3d",
+          "brandy",
+          "capri",
           "cycle",
-          "ship12s",
-          "forplan",
-          "kb2",
-          "recipe",
-          "fit1d",
+          "czprob",
+          "d2q06c",
+          "d6cube",
+          "degen2",
+          "degen3",
+          "dfl001",
           "e226",
           "etamacro",
-          "perold",
           "fffff800",
-          "sierra",
-          "maros_r7",
-          "tuff",
-          "pilotnov",
-          "dfl001",
-          "pilot87",
-          "pilot_we",
-          "capri",
+          "finnis",
+          "fit1d",
+          "fit1p",
+          "fit2d",
+          "forplan",
+          "ganges",
+          "gfrd-pnc",
+          "greenbea",
+          "greenbeb",
+          "grow15",
+          "grow22",
+          "grow7",
+          "israel",
+          "kb2",
+          "lotfi",
+          "maros-r7",
+          "maros",
+          "modszk1",
+          "nesm",
+          "perold",
+          "pilot.ja",
+          "pilot.we",
+          "pilot",
           "pilot4",
+          "pilot87",
+          "pilotnov",
+          "recipe",
+          "sc105",
+          "sc205",
+          "sc50a",
+          "sc50b",
+          "scagr25",
+          "scagr7",
+          "scfxm1",
+          "scfxm2",
+          "scfxm3",
+          "scorpion",
+          "scrs8",
+          "scsd1",
+          "scsd6",
+          "scsd8",
+          "sctap1",
+          "sctap2",
+          "sctap3",
+          "seba",
+          "share1b",
+          "share2b",
+          "shell",
+          "ship04l",
+          "ship04s",
+          "ship08l",
+          "ship08s",
+          "ship12l",
+          "ship12s",
+          "sierra",
+          "stair",
+          "standata",
+          "standgub",
+          "standmps",
+          "stocfor1",
+          "stocfor2",
+          "tuff",
+          "vtp.base",
           "wood1p",
           "woodw",
-          "ship04l",
-          "grow15",
-          "degen3",
-          "fit1p",
-          "standata",
-          "greenbea",
-          "czprob",
-          "scfxm1",
-          "sc50a",
-          "agg2",
-          "standmps",
-          "share1b",
-          "afiro",
-          "seba",
-          "degen2",
-          "scagr25",
-          "scrs8",
-          "ganges",
-          "brandy",
-          "scsd6",
-          "boeing1",
-          "grow7",
-          "bnl2",
-          "sctap3",
-          "pilot_ja",
-          "blend",
-          "sctap2",
-          "d6cube",
-          "grow22",
-          "gfrd_pnc",
-          "ship08l",
-          "d2q06c",
-          "lotfi",
-          "finnis"
       ]
     )]
     #[allow(non_snake_case)]
-    fn test_download_compressed(name: &str) {
-        NetlibLoader::download_compressed(name).unwrap();
-    }
-
-    #[value_parameterized_test(
-      values = [
-          "israel",
-          "scagr7",
-          "ship08s",
-          "vtp_base",
-          "bnl1",
-          "pilot",
-          "standgub",
-          "scsd1",
-          "sc205",
-          "adlittle",
-          "ship04s",
-          "scfxm2",
-          "agg",
-          "agg3",
-          "scorpion",
-          "shell",
-          "greenbeb",
-          "fit2d",
-          "bandm",
-          "share2b",
-          "sc105",
-          "nesm",
-          "boeing2",
-          "sc50b",
-          "scfxm3",
-          "stair",
-          "stocfor1",
-          "maros",
-          "bore3d",
-          "scsd8",
-          "stocfor2",
-          "25fv47",
-          "sctap1",
-          "ship12l",
-          "beaconfd",
-          "modszk1",
-          "cycle",
-          "ship12s",
-          "forplan",
-          "kb2",
-          "recipe",
-          "fit1d",
-          "e226",
-          "etamacro",
-          "perold",
-          "fffff800",
-          "sierra",
-          "maros_r7",
-          "tuff",
-          "pilotnov",
-          "dfl001",
-          "pilot87",
-          "pilot_we",
-          "capri",
-          "pilot4",
-          "wood1p",
-          "woodw",
-          "ship04l",
-          "grow15",
-          "degen3",
-          "fit1p",
-          "standata",
-          "greenbea",
-          "czprob",
-          "scfxm1",
-          "sc50a",
-          "agg2",
-          "standmps",
-          "share1b",
-          "afiro",
-          "seba",
-          "degen2",
-          "scagr25",
-          "scrs8",
-          "ganges",
-          "brandy",
-          "scsd6",
-          "boeing1",
-          "grow7",
-          "bnl2",
-          "sctap3",
-          "pilot_ja",
-          "blend",
-          "sctap2",
-          "d6cube",
-          "grow22",
-          "gfrd_pnc",
-          "ship08l",
-          "d2q06c",
-          "lotfi",
-          "finnis"
-      ]
-    )]
-    #[allow(non_snake_case)]
-    fn test_get_lp(name: &str) {
-        let model = NetlibLoader::get_lp(name).unwrap();
-        // assert!(!model.rows.is_empty(), "Model has no rows");
-        // assert!(!model.columns.is_empty(), "Model has no columns");
+    fn test_get_case(name: &str) {
+        let mps_case = get_case(name).unwrap();
     }
 }
