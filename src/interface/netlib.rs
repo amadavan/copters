@@ -227,52 +227,48 @@ impl TryFromMpsModel for mps::model::Model<f32> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{LazyLock};
-
     use faer::Col;
-    use macros::matrix_parameterized_test;
+    use rstest::rstest;
+    use rstest_reuse::{apply, template};
+
+    use loaders::netlib;
 
     use crate::{
-        E, Properties, SolverOptions, SolverState, callback::{Callback, ConvergenceOutput}, interface::netlib::TryFromMpsModel, linalg::{cholesky::SimplicialSparseCholesky, lu::SimplicialSparseLu}, lp::{LinearProgram, LinearProgramSolver, mpc}, terminators::{ConvergenceTerminator, Terminator}
+        E, Properties, SolverOptions, SolverState, callback::{Callback, ConvergenceOutput}, interface::netlib::TryFromMpsModel, lp::{LinearProgramSolverBuilder, LinearProgramSolverType}, terminators::{ConvergenceTerminator, Terminator}
     };
 
-    static NETLIB_LPS: LazyLock<std::collections::HashMap<String, LinearProgram>> = LazyLock::new(|| {
-        let mut m = std::collections::HashMap::new();
-        for (name, _model) in loaders::netlib::NETLIB_CASE_DATA.iter() {
-            let mps = loaders::netlib::get_case(name).unwrap().model().to_owned();
-            let lp = mps.try_into_linear_program().unwrap();
-            m.insert(name.to_string(), lp);
-        }
-        m
-    });
-
-    fn get_netlib_case(name: &str) -> &'static LinearProgram {
-        NETLIB_LPS.get(name).unwrap()
-    }
+    // fn get_netlib_case(name: &str) -> &'static LinearProgram {
+    //     NETLIB_LPS.get(name).unwrap()
+    // }
     
-    type MPCSimplicial<'a> = mpc::MehrotraPredictorCorrector<
-        'a,
-        SimplicialSparseCholesky,
-        mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-        mpc::mu_update::AdaptiveMuUpdate<'a>,
-    >;
-    type MPCSupernodal<'a> = mpc::MehrotraPredictorCorrector<
-        'a,
-        SimplicialSparseCholesky,
-        mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-        mpc::mu_update::AdaptiveMuUpdate<'a>,
-    >;
+    // type MPCSimplicial<'a> = mpc::MehrotraPredictorCorrector<
+    //     'a,
+    //     SimplicialSparseCholesky,
+    //     mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+    //     mpc::mu_update::AdaptiveMuUpdate<'a>,
+    // >;
+    // type MPCSupernodal<'a> = mpc::MehrotraPredictorCorrector<
+    //     'a,
+    //     SimplicialSparseCholesky,
+    //     mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+    //     mpc::mu_update::AdaptiveMuUpdate<'a>,
+    // >;
+    
+    #[template]
+    #[rstest]
+    pub fn solver_types(
+        #[values(
+            LinearProgramSolverType::SimplicialCholeskyMpc,
+            LinearProgramSolverType::SupernodalCholeskyMpc,
+            LinearProgramSolverType::SimplicialLuMpc
+        )]
+        solver_type: LinearProgramSolverType,
+    ) {
+    }
 
-    type _MPCLU<'a> = mpc::MehrotraPredictorCorrector<
-        'a,
-        SimplicialSparseLu,
-        mpc::augmented_system::StandardSystem<'a, SimplicialSparseLu>,
-        mpc::mu_update::AdaptiveMuUpdate<'a>,
-    >;
-
-    #[matrix_parameterized_test(
-        types = (MPCSimplicial, MPCSupernodal),
-        args = [
+    #[template]
+    #[rstest]
+    pub fn netlib_cases(#[values(
             // "25fv47",
             // "adlittle",
             "afiro",
@@ -364,11 +360,19 @@ mod test {
             // "vtp.base",
             "wood1p",
             // "woodw",
-        ],
     )]
-    #[allow(non_snake_case)]
-    fn test_netlib<'a, T: LinearProgramSolver<'a>>(name: &str) {
-        let lp = get_netlib_case(name);
+    case_name: &str, 
+        #[values(
+            LinearProgramSolverType::SimplicialCholeskyMpc,
+            LinearProgramSolverType::SupernodalCholeskyMpc,
+            LinearProgramSolverType::SimplicialLuMpc
+        )]
+        solver_type: LinearProgramSolverType,) {}
+
+    #[apply(netlib_cases)]
+    #[apply(solver_types)]
+    fn test_netlib_case(case_name: &str, solver_type: LinearProgramSolverType) {
+        let lp = netlib::get_case(case_name).unwrap().model().to_owned().try_into_linear_program().unwrap();
 
         let mut state = SolverState::new(
             Col::ones(lp.get_n_vars()),
@@ -397,8 +401,10 @@ mod test {
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
-        let mut s = T::new(&lp, &options);
-        let status = s.solve(&mut state, &mut properties);
+        let mut solver = LinearProgramSolverBuilder::new(&lp)
+            .with_solver_type(solver_type)
+            .build();
+        let status = solver.solve(&mut state, &mut properties);
 
         assert_eq!(status.unwrap(), crate::Status::Optimal);
     }

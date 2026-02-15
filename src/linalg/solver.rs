@@ -71,3 +71,57 @@ pub trait LinearSolver: Solver {}
 /// This trait provides a standard interface for working with sparse matrices and right-hand side
 /// vectors. Implementors must call `analyze` and `factorize` before solving systems.
 pub trait SymmetricLinearSolver: LinearSolver {}
+
+#[cfg(test)]
+mod tests {
+    use crate::linalg::{
+        cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
+        lu::SimplicialSparseLu,
+        solver::{LinearSolver, SymmetricLinearSolver},
+    };
+    use faer::rand::SeedableRng;
+    use faer::rand::rngs::StdRng;
+    use faer::stats::DistributionExt;
+    use faer::stats::prelude::{CwiseMatDistribution, StandardNormal};
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_mtx_symsolver(
+        #[values("Trefethen 20b")] mat_name: &str,
+        #[values(
+            SimplicialSparseCholesky::new(),
+            SupernodalSparseCholesky::new(),
+            SimplicialSparseLu::new()
+        )]
+        mut solver: impl LinearSolver,
+    ) {
+        const N_COUNT: usize = 10;
+        let mat = loaders::mtx::get_matrix_by_name::<I, E>(mat_name, true);
+
+        solver.analyze(mat.as_ref()).unwrap();
+        solver.factorize(mat.as_ref()).unwrap();
+
+        let rng = &mut StdRng::seed_from_u64(0);
+
+        let n = mat.ncols();
+
+        // Generate several random column vectors and verify whether the results hold
+        for _ in 0..N_COUNT {
+            // let mut col: Mat<E> = Mat::zeros(n, 1);
+            let col = CwiseMatDistribution {
+                nrows: n,
+                ncols: 1,
+                dist: StandardNormal,
+            }
+            .rand(rng);
+
+            let mut result = col.clone();
+            result = solver.solve(result.as_ref()).expect("Unable to solve");
+
+            // println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
+            assert!((&col - &mat * &result).norm_l2() < 1e-10); // Check if Ax ≈ b
+        }
+    }
+}

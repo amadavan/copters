@@ -1,6 +1,9 @@
 use faer::{Col, sparse::SparseColMat};
 
-use crate::{E, I, Solver, SolverOptions};
+use crate::{
+    E, I, Solver, SolverOptions,
+    linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
+};
 
 pub mod mpc;
 
@@ -71,27 +74,114 @@ impl LinearProgram {
 /// Trait for solvers that operate on a [`LinearProgram`].
 pub trait LinearProgramSolver<'a>: Solver {
     /// Creates a new solver instance for the given linear program and options.
-    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self;
+    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self
+    where
+        Self: Sized;
+}
+
+#[derive(Copy, Clone)]
+pub enum LinearProgramSolverType {
+    SimplicialCholeskyMpc,
+    SupernodalCholeskyMpc,
+    SimplicialLuMpc,
+}
+
+pub struct LinearProgramSolverBuilder<'a> {
+    lp: &'a LinearProgram,
+    solver_type: LinearProgramSolverType,
+    options: SolverOptions,
+}
+
+impl<'a> LinearProgramSolverBuilder<'a> {
+    pub fn new(lp: &'a LinearProgram) -> Self {
+        Self {
+            lp,
+            solver_type: LinearProgramSolverType::SimplicialCholeskyMpc,
+            options: SolverOptions::new(),
+        }
+    }
+
+    pub fn replace_lp(&self, lp: &'a LinearProgram) -> Self {
+        Self {
+            lp,
+            solver_type: self.solver_type,
+            options: self.options.clone(),
+        }
+    }
+
+    pub fn with_solver_type(mut self, solver_type: LinearProgramSolverType) -> Self {
+        self.solver_type = solver_type;
+        self
+    }
+
+    pub fn with_options(mut self, options: SolverOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn build(&self) -> Box<dyn LinearProgramSolver<'a> + 'a> {
+        match self.solver_type {
+            LinearProgramSolverType::SimplicialCholeskyMpc => {
+                Box::new(mpc::MehrotraPredictorCorrector::<
+                    'a,
+                    SimplicialSparseCholesky,
+                    mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                    mpc::mu_update::AdaptiveMuUpdate<'a>,
+                >::new(self.lp, &self.options))
+            }
+            LinearProgramSolverType::SupernodalCholeskyMpc => {
+                Box::new(mpc::MehrotraPredictorCorrector::<
+                    'a,
+                    SupernodalSparseCholesky,
+                    mpc::augmented_system::StandardSystem<'a, SupernodalSparseCholesky>,
+                    mpc::mu_update::AdaptiveMuUpdate<'a>,
+                >::new(self.lp, &self.options))
+            }
+            LinearProgramSolverType::SimplicialLuMpc => {
+                Box::new(mpc::MehrotraPredictorCorrector::<
+                    'a,
+                    SimplicialSparseCholesky,
+                    mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                    mpc::mu_update::AdaptiveMuUpdate<'a>,
+                >::new(self.lp, &self.options))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     use std::sync::OnceLock;
 
     use faer::{
         Col,
         sparse::{SparseColMat, Triplet},
     };
-    use macros::matrix_parameterized_test;
+    use rstest::{fixture, rstest};
+    use rstest_reuse::{apply, template};
 
     use crate::{
         E, I, Properties, SolverOptions, SolverState,
         callback::{Callback, ConvergenceOutput},
-        linalg::cholesky::SimplicialSparseCholesky,
-        lp::{LinearProgram, LinearProgramSolver, mpc},
+        lp::{LinearProgram, LinearProgramSolverBuilder},
         terminators::{ConvergenceTerminator, Terminator},
     };
 
+    #[template]
+    #[rstest]
+    pub fn solver_types(
+        #[values(
+            LinearProgramSolverType::SimplicialCholeskyMpc,
+            LinearProgramSolverType::SupernodalCholeskyMpc,
+            LinearProgramSolverType::SimplicialLuMpc
+        )]
+        solver_type: LinearProgramSolverType,
+    ) {
+    }
+
+    #[fixture]
     fn build_simple_lp() -> &'static LinearProgram {
         static LP: OnceLock<LinearProgram> = OnceLock::new();
         LP.get_or_init(|| {
@@ -126,26 +216,22 @@ mod test {
         })
     }
 
-    type MPCSimplicial<'a> = mpc::MehrotraPredictorCorrector<
-        'a,
-        SimplicialSparseCholesky,
-        mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-        mpc::mu_update::AdaptiveMuUpdate<'a>,
-    >;
-    type MPCSupernodal<'a> = mpc::MehrotraPredictorCorrector<
-        'a,
-        SimplicialSparseCholesky,
-        mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-        mpc::mu_update::AdaptiveMuUpdate<'a>,
-    >;
+    #[fixture]
+    fn build_options() -> &'static SolverOptions {
+        static OPTIONS: OnceLock<SolverOptions> = OnceLock::new();
+        OPTIONS.get_or_init(|| {
+            let mut options = SolverOptions::new();
+            let _ = options.set_option("max_iterations", 1000);
+            let _ = options.set_option("tolerance", 1e-8);
+            options
+        })
+    }
 
-    #[matrix_parameterized_test(
-        types = (MPCSimplicial, MPCSupernodal),
-        named_args = [
-            ("Simple LP", build_simple_lp()),
-          ],
-    )]
-    fn test_lp<'a, T: LinearProgramSolver<'a>>(lp: &'a LinearProgram) {
+    #[apply(solver_types)]
+    fn test_solver_instances(
+        #[values(build_simple_lp())] lp: &'static LinearProgram,
+        solver_type: LinearProgramSolverType,
+    ) {
         let mut state = SolverState::new(
             Col::ones(lp.c.nrows()),
             Col::ones(lp.b.nrows()),
@@ -160,8 +246,11 @@ mod test {
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
-        let mut s = T::new(lp, &options);
-        let status = s.solve(&mut state, &mut properties);
+        let mut solver = LinearProgramSolverBuilder::new(lp)
+            .with_solver_type(solver_type)
+            .with_options(options.clone())
+            .build();
+        let status = solver.solve(&mut state, &mut properties);
 
         assert_eq!(status.unwrap(), crate::Status::Optimal);
     }

@@ -631,20 +631,19 @@ mod tests {
     use faer::rand::rngs::StdRng;
     use faer::stats::DistributionExt;
     use faer::stats::prelude::{CwiseMatDistribution, StandardNormal};
+    use rstest::rstest;
+    use rstest_reuse::{apply, template};
 
-    use macros::{type_parameterized_test, value_parameterized_test};
-
-    #[value_parameterized_test(values = [1usize, 2usize, 3usize])]
-    fn test_simplicial_sparse_cholesky(_value: usize) {
-        let solver = SimplicialSparseCholesky::new();
-        assert!(solver.symbolic.is_none());
-        assert!(solver.perm.is_none());
-        assert!(solver.L_values.is_empty());
-        assert!(solver.ldlt.is_none());
+    enum SolverType {
+        SimplicialCholesky,
+        SupernodalCholesky,
     }
 
-    fn test_symmetric_solver<T: SymmetricLinearSolver>(mat: SparseColMat<I, E>, n_count: usize) {
-        let mut solver = T::new();
+    fn test_symmetric_solver(mat: SparseColMat<I, E>, solver_type: SolverType, n_count: usize) {
+        let mut solver: Box<dyn SymmetricLinearSolver> = match solver_type {
+            SolverType::SimplicialCholesky => Box::new(SimplicialSparseCholesky::new()),
+            SolverType::SupernodalCholesky => Box::new(SupernodalSparseCholesky::new()),
+        };
         solver.analyze(mat.as_ref()).unwrap();
         solver.factorize(mat.as_ref()).unwrap();
 
@@ -670,8 +669,12 @@ mod tests {
         }
     }
 
-    #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
-    fn test_symmetric_solver_1<T: SymmetricLinearSolver>() {
+    #[template]
+    #[rstest]
+    fn test_symmetric_solver_1(
+        #[values(SolverType::SimplicialCholesky, SolverType::SupernodalCholesky)]
+        solver_type: SolverType,
+    ) {
         // Create the SPD matrix as triplets
         let n = 3;
         let mut triplets = Vec::new();
@@ -684,24 +687,12 @@ mod tests {
         }
         let mat = faer::sparse::SparseColMat::try_new_from_triplets(n, n, &triplets).unwrap();
 
-        test_symmetric_solver::<T>(mat, 10);
+        test_symmetric_solver(mat, solver_type, 10);
     }
 
-    #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
-    fn test_symmetric_solver_trefethan20b<T: SymmetricLinearSolver>() {
+    #[apply(test_symmetric_solver_1)]
+    fn test_symmetric_solver_trefethan20b(solver_type: SolverType) {
         let mat = loaders::mtx::get_matrix_by_name("Trefethen 20b", true);
-        test_symmetric_solver::<T>(mat, 10);
+        test_symmetric_solver(mat, solver_type, 10);
     }
-
-    // #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
-    // fn test_symmetric_solver_bundle1<T: SymmetricLinearSolver>() {
-    //     let mat = loaders::mtx::get_matrix_by_name("bundle1", true);
-    //     test_symmetric_solver::<T>(mat, 10);
-    // }
-
-    // #[type_parameterized_test(values = (SimplicialSparseCholesky, SupernodalSparseCholesky))]
-    // fn test_symmetric_solver_nd3k<T: SymmetricLinearSolver>() {
-    //     let mat = loaders::mtx::get_matrix_by_name("nd3k", true);
-    //     test_symmetric_solver::<T>(mat, 10);
-    // }
 }
