@@ -1,5 +1,13 @@
-use faer::{Col, sparse::SparseColMat};
+use std::ops::Mul;
 
+use faer::traits::MulByRef;
+use faer::{Col, sparse::SparseColMat};
+use problemo::Problem;
+use problemo::ProblemResult;
+use problemo::common::IntoCommonProblem;
+
+use crate::nlp::NonlinearProgram;
+use crate::qp::QuadraticProgram;
 use crate::{
     E, I, Solver, SolverOptions,
     linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
@@ -69,10 +77,52 @@ impl LinearProgram {
     pub fn get_upper_bounds(&self) -> &Col<E> {
         &self.u
     }
+
+    pub fn solver_builder<'a>(&'a self) -> LPSolverBuilder<'a> {
+        LPSolverBuilder::new().with_lp(self)
+    }
+
+    pub fn get_objective_value(&self, x: &Col<E>) -> E {
+        self.c.transpose() * x
+    }
+
+    pub fn get_constraint_values(&self, x: &Col<E>) -> Col<E> {
+        self.A.as_ref() * x - &self.b
+    }
+}
+
+#[allow(unused, non_snake_case)]
+impl From<LinearProgram> for QuadraticProgram {
+    fn from(lp: LinearProgram) -> Self {
+        let n = lp.get_n_vars();
+        let Q = SparseColMat::try_new_from_triplets(n, n, &[]).unwrap();
+        QuadraticProgram::new(Q, lp.c, lp.A, lp.b, lp.l, lp.u)
+    }
+}
+
+#[allow(unused, non_snake_case)]
+impl From<LinearProgram> for NonlinearProgram {
+    fn from(lp: LinearProgram) -> Self {
+        let n = lp.get_n_vars();
+        let m = lp.get_n_cons();
+
+        let c = lp.get_objective().clone();
+        let A = lp.get_constraint_matrix().clone();
+        let b = lp.get_rhs().clone();
+        let A2 = A.clone();
+        let c2 = c.clone();
+
+        let f = Box::new(move |x: &Col<E>| c.transpose() * x);
+        let g = Box::new(move |x: &Col<E>| A.clone() * x - &b);
+        let df = Box::new(move |x: &Col<E>| c2.clone());
+        let dg = Box::new(move |_: &Col<E>| A2.clone());
+
+        NonlinearProgram::new_boxed(n, m, f, g, df, dg, None, Some(lp.l), Some(lp.u))
+    }
 }
 
 /// Trait for solvers that operate on a [`LinearProgram`].
-pub trait LinearProgramSolver<'a>: Solver {
+pub trait LPSolver<'a>: Solver {
     /// Creates a new solver instance for the given linear program and options.
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self
     where
@@ -80,37 +130,34 @@ pub trait LinearProgramSolver<'a>: Solver {
 }
 
 #[derive(Copy, Clone)]
-pub enum LinearProgramSolverType {
-    SimplicialCholeskyMpc,
-    SupernodalCholeskyMpc,
-    SimplicialLuMpc,
+pub enum LPSolverType {
+    MpcSimplicialCholesky,
+    MpcSupernodalCholesky,
+    MpcSimplicialLu,
 }
 
-pub struct LinearProgramSolverBuilder<'a> {
-    lp: &'a LinearProgram,
-    solver_type: LinearProgramSolverType,
+pub struct LPSolverBuilder<'a> {
+    lp: Option<&'a LinearProgram>,
+    solver_type: Option<LPSolverType>,
     options: SolverOptions,
 }
 
-impl<'a> LinearProgramSolverBuilder<'a> {
-    pub fn new(lp: &'a LinearProgram) -> Self {
+impl<'a> LPSolverBuilder<'a> {
+    pub fn new() -> Self {
         Self {
-            lp,
-            solver_type: LinearProgramSolverType::SimplicialCholeskyMpc,
+            lp: None,
+            solver_type: None,
             options: SolverOptions::new(),
         }
     }
 
-    pub fn replace_lp(&self, lp: &'a LinearProgram) -> Self {
-        Self {
-            lp,
-            solver_type: self.solver_type,
-            options: self.options.clone(),
-        }
+    pub fn with_lp(mut self, lp: &'a LinearProgram) -> Self {
+        self.lp = Some(lp);
+        self
     }
 
-    pub fn with_solver_type(mut self, solver_type: LinearProgramSolverType) -> Self {
-        self.solver_type = solver_type;
+    pub fn with_solver(mut self, solver_type: LPSolverType) -> Self {
+        self.solver_type = Some(solver_type);
         self
     }
 
@@ -119,32 +166,37 @@ impl<'a> LinearProgramSolverBuilder<'a> {
         self
     }
 
-    pub fn build(&self) -> Box<dyn LinearProgramSolver<'a> + 'a> {
-        match self.solver_type {
-            LinearProgramSolverType::SimplicialCholeskyMpc => {
-                Box::new(mpc::MehrotraPredictorCorrector::<
+    pub fn build(self) -> Result<Box<dyn LPSolver<'a> + 'a>, Problem> {
+        let lp = self
+            .lp
+            .ok_or_else(|| "Linear program must be provided".gloss())?;
+        let solver_type = self
+            .solver_type
+            .ok_or_else(|| "Solver type must be specified".gloss())?;
+
+        match solver_type {
+            LPSolverType::MpcSimplicialCholesky => {
+                Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                     'a,
                     SimplicialSparseCholesky,
                     mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
-                >::new(self.lp, &self.options))
+                >::new(lp, &self.options)))
             }
-            LinearProgramSolverType::SupernodalCholeskyMpc => {
-                Box::new(mpc::MehrotraPredictorCorrector::<
+            LPSolverType::MpcSupernodalCholesky => {
+                Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                     'a,
                     SupernodalSparseCholesky,
                     mpc::augmented_system::StandardSystem<'a, SupernodalSparseCholesky>,
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
-                >::new(self.lp, &self.options))
+                >::new(lp, &self.options)))
             }
-            LinearProgramSolverType::SimplicialLuMpc => {
-                Box::new(mpc::MehrotraPredictorCorrector::<
-                    'a,
-                    SimplicialSparseCholesky,
-                    mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-                    mpc::mu_update::AdaptiveMuUpdate<'a>,
-                >::new(self.lp, &self.options))
-            }
+            LPSolverType::MpcSimplicialLu => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                SimplicialSparseCholesky,
+                mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp, &self.options))),
         }
     }
 }
@@ -163,9 +215,9 @@ mod test {
     use rstest_reuse::{apply, template};
 
     use crate::{
-        E, I, Properties, SolverOptions, SolverState,
+        E, I, SolverHooks, SolverOptions, SolverState,
         callback::{Callback, ConvergenceOutput},
-        lp::{LinearProgram, LinearProgramSolverBuilder},
+        lp::LinearProgram,
         terminators::{ConvergenceTerminator, Terminator},
     };
 
@@ -173,11 +225,11 @@ mod test {
     #[rstest]
     pub fn solver_types(
         #[values(
-            LinearProgramSolverType::SimplicialCholeskyMpc,
-            LinearProgramSolverType::SupernodalCholeskyMpc,
-            LinearProgramSolverType::SimplicialLuMpc
+            LPSolverType::MpcSimplicialCholesky,
+            LPSolverType::MpcSupernodalCholesky,
+            LPSolverType::MpcSimplicialLu
         )]
-        solver_type: LinearProgramSolverType,
+        solver_type: LPSolverType,
     ) {
     }
 
@@ -230,7 +282,7 @@ mod test {
     #[apply(solver_types)]
     fn test_solver_instances(
         #[values(build_simple_lp())] lp: &'static LinearProgram,
-        solver_type: LinearProgramSolverType,
+        solver_type: LPSolverType,
     ) {
         let mut state = SolverState::new(
             Col::ones(lp.c.nrows()),
@@ -241,15 +293,16 @@ mod test {
 
         let options = SolverOptions::new();
 
-        let mut properties = Properties {
+        let mut properties = SolverHooks {
             callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
-        let mut solver = LinearProgramSolverBuilder::new(lp)
-            .with_solver_type(solver_type)
+        let mut solver = LinearProgram::solver_builder(lp)
+            .with_solver(solver_type)
             .with_options(options.clone())
-            .build();
+            .build()
+            .unwrap();
         let status = solver.solve(&mut state, &mut properties);
 
         assert_eq!(status.unwrap(), crate::Status::Optimal);

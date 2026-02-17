@@ -5,10 +5,10 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, Properties, Solver, SolverOptions, SolverState, Status,
+    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
-        LinearProgram, LinearProgramSolver,
+        LPSolver, LinearProgram,
         mpc::{augmented_system::AugmentedSystem, mu_update::MuUpdate},
     },
 };
@@ -142,7 +142,10 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state_aff.z_l += alpha_aff_dual * &aff_step.dz_l;
         state_aff.z_u += alpha_aff_dual * &aff_step.dz_u;
 
-        state.sigma = Some(pow(self.mu_updater.get(&state_aff) / state.mu.unwrap_or(E::from(1.)), 3));
+        state.sigma = Some(pow(
+            self.mu_updater.get(&state_aff) / state.mu.unwrap_or(E::from(1.)),
+            3,
+        ));
         state.safety_factor = Some(E::from(0.99)); // Reduce step length to maintain stability
 
         residual.cs_lower -= cwise_multiply_finite(aff_step.dz_l.as_ref(), aff_step.dx.as_ref());
@@ -161,10 +164,14 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.alpha_dual = alpha_corr_dual;
 
         let residual = self.compute_residual(state);
-        state.primal_infeasibility = residual.get_primal_feasibility().norm_l2();
-        state.dual_infeasibility = residual.get_dual_feasibility().norm_l2();
-        state.complimentary_slack_lower = residual.get_complementarity_lower().norm_l2();
-        state.complimentary_slack_upper = residual.get_complementarity_upper().norm_l2();
+        state.primal_infeasibility =
+            residual.get_primal_feasibility().norm_l2() / self.lp.get_n_vars() as E;
+        state.dual_infeasibility =
+            residual.get_dual_feasibility().norm_l2() / self.lp.get_n_cons() as E;
+        state.complimentary_slack_lower =
+            residual.get_complementarity_lower().norm_l2() / self.lp.get_n_vars() as E;
+        state.complimentary_slack_upper =
+            residual.get_complementarity_upper().norm_l2() / self.lp.get_n_vars() as E;
 
         state.status = Status::InProgress;
 
@@ -172,8 +179,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     }
 }
 
-impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>>
-    LinearProgramSolver<'a> for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> LPSolver<'a>
+    for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
         Self {
@@ -198,7 +205,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     fn solve(
         &mut self,
         state: &mut SolverState,
-        properties: &mut Properties,
+        properties: &mut SolverHooks,
     ) -> Result<Status, Problem> {
         self.initialize(state);
         state.nit = 0;

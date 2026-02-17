@@ -8,7 +8,7 @@ use faer::sparse::SparseColMat;
 use faer::traits::ComplexField;
 use faer::traits::num_traits::{Float, PrimInt};
 use faer::{Col, Index};
-use macros::{build_options, use_option};
+use macros::build_options;
 use problemo::Problem;
 
 pub trait ElementType: ComplexField + Float + Div<Output = Self> + PrimInt {}
@@ -25,6 +25,7 @@ pub mod interface;
 pub mod linalg;
 pub mod lp;
 pub mod nlp;
+pub mod qp;
 pub mod stochastic;
 pub mod terminators;
 
@@ -51,8 +52,9 @@ impl Clone for Box<dyn OptionTrait> {
 }
 
 /// Status codes for optimization solvers.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum Status {
+    #[default]
     /// The solver is still running.
     InProgress,
     /// An optimal solution was found.
@@ -80,7 +82,7 @@ pub trait Solver {
     fn solve(
         &mut self,
         state: &mut SolverState,
-        properties: &mut Properties,
+        properties: &mut SolverHooks,
     ) -> Result<Status, Problem>;
 }
 
@@ -106,6 +108,7 @@ pub struct SolverState {
     // IPM-specific state
     sigma: Option<E>,
     mu: Option<E>,
+    tau: Option<E>,
     safety_factor: Option<E>,
 
     // NLP-specific state
@@ -138,6 +141,7 @@ impl SolverState {
 
             sigma: None,
             mu: None,
+            tau: None,
             safety_factor: None,
 
             f: None,
@@ -186,9 +190,7 @@ impl SolverState {
     }
 }
 
-#[use_option(name="callback", type_=crate::callback::Callbacks, description="Callback for the solver.")]
-#[use_option(name="terminator", type_=crate::terminators::Terminators, default="NullTerminator", description="Terminator for the solver.")]
-pub struct Properties {
+pub struct SolverHooks {
     callback: Box<dyn crate::callback::Callback>,
     terminator: Box<dyn crate::terminators::Terminator>,
 }

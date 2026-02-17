@@ -1,10 +1,10 @@
 use copters::linalg::cholesky::SimplicialSparseCholesky;
 use copters::linalg::cholesky::SupernodalSparseCholesky;
 use copters::lp;
-use copters::lp::{LinearProgramSolver, mpc::MehrotraPredictorCorrector};
+use copters::lp::{LPSolver, mpc::MehrotraPredictorCorrector};
 
 trait SolverBuilder {
-    type Solver: LinearProgramSolver<'static>;
+    type Solver: LPSolver<'static>;
 }
 
 macro_rules! solver_builder {

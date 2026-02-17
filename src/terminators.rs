@@ -8,11 +8,14 @@
 //! # Note
 //! [`InterruptTerminator`] installs a global signal handler and **can only be constructed once** per process. Attempting to create multiple instances will result in a panic.
 
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    collections::HashSet,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use macros::{build_option_enum, explicit_options, use_option};
 
-use crate::{E, SolverOptions, SolverState, Status};
+use crate::{E, Solver, SolverOptions, SolverState, Status};
 
 /// Criterion for deciding when the solver should stop.
 ///
@@ -124,8 +127,8 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility() <= self.options.tolerance * state.x.nrows() as E
-            && state.get_dual_infeasibility() <= self.options.tolerance * state.y.nrows() as E
+        if state.get_primal_infeasibility() <= self.options.tolerance
+            && state.get_dual_infeasibility() <= self.options.tolerance
         {
             Some(Status::Optimal)
         } else {
@@ -210,19 +213,68 @@ impl Terminator for MultiTerminator {
     }
 }
 
-build_option_enum!(
-    trait_ = Terminator,
-    name = "Terminators",
-    variants = (
-        NullTerminator,
-        InterruptTerminator,
-        TimeOutTerminator,
-        ConvergenceTerminator,
-        MultiTerminator
-    ),
-    new_arguments = (&SolverOptions,),
-    doc_header = "Termination criteria for the solver."
-);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TerminatorType {
+    NullTerminator,
+    InterruptTerminator,
+    TimeOutTerminator,
+    ConvergenceTerminator,
+    SlowProgressTerminator,
+    MultiTerminator,
+}
+
+#[allow(unused)]
+struct Builder {
+    terminators: HashSet<TerminatorType>,
+    options: SolverOptions,
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Self {
+            terminators: HashSet::new(),
+            options: SolverOptions::new(),
+        }
+    }
+
+    pub fn with_options(mut self, options: SolverOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn add_terminator(mut self, terminator: TerminatorType) -> Self {
+        self.terminators.insert(terminator);
+        self
+    }
+
+    pub fn build(self) -> MultiTerminator {
+        let terminators = self
+            .terminators
+            .into_iter()
+            .map(|t| match t {
+                TerminatorType::NullTerminator => {
+                    Box::new(NullTerminator::new(&self.options)) as Box<dyn Terminator>
+                }
+                TerminatorType::InterruptTerminator => {
+                    Box::new(InterruptTerminator::new(&self.options))
+                }
+                TerminatorType::TimeOutTerminator => {
+                    Box::new(TimeOutTerminator::new(&self.options))
+                }
+                TerminatorType::ConvergenceTerminator => {
+                    Box::new(ConvergenceTerminator::new(&self.options))
+                }
+                TerminatorType::SlowProgressTerminator => {
+                    Box::new(SlowProgressTerminator::new(&self.options))
+                }
+                TerminatorType::MultiTerminator => {
+                    Box::new(MultiTerminator::new_default(&self.options))
+                }
+            })
+            .collect();
+        MultiTerminator::new_with_terminators(terminators)
+    }
+}
 
 #[cfg(test)]
 mod tests {

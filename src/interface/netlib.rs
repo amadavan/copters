@@ -234,7 +234,7 @@ mod test {
     use loaders::netlib;
 
     use crate::{
-        E, Properties, SolverOptions, SolverState, callback::{Callback, ConvergenceOutput}, interface::netlib::TryFromMpsModel, lp::{LinearProgramSolverBuilder, LinearProgramSolverType}, terminators::{ConvergenceTerminator, Terminator}
+        E, SolverHooks, SolverOptions, SolverState, callback::{Callback, ConvergenceOutput}, interface::netlib::TryFromMpsModel, lp::{LinearProgram, LPSolver, LPSolverBuilder, LPSolverType}, terminators::{ConvergenceTerminator, Terminator}
     };
 
     // fn get_netlib_case(name: &str) -> &'static LinearProgram {
@@ -262,116 +262,117 @@ mod test {
             LinearProgramSolverType::SupernodalCholeskyMpc,
             LinearProgramSolverType::SimplicialLuMpc
         )]
-        solver_type: LinearProgramSolverType,
+        solver_type: LPSolverType,
     ) {
     }
 
     #[template]
     #[rstest]
-    pub fn netlib_cases(#[values(
-            // "25fv47",
-            // "adlittle",
-            "afiro",
-            // "agg",
-            // "agg2",
-            // "agg3",
-            // "bandm",
-            // "beaconfd",
-            // "blend",
-            // "bnl1",
-            // "bnl2",
-            // "boeing1",
-            // "boeing2",
-            // "bore3d",
-            // "brandy",
-            // "capri",
-            // "cycle",
-            // "czprob",
-            // "d2q06c",
-            // "d6cube",
-            // "degen2",
-            // "degen3",
-            // "dfl001",
-            // "e226",
-            // "etamacro",
-            // "fffff800",
-            // "finnis",
-            "fit1d",
-            "fit1p",
-            "fit2d",
-            // "forplan",
-            // "ganges",
-            // "gfrd-pnc",
-            // "greenbea",
-            // "greenbeb",
-            "grow15",
-            "grow22",
-            "grow7",
-            // "israel",
-            // "kb2",
-            // "lotfi",
-            // "maros-r7",
-            // "maros",
-            // "modszk1",
-            // "nesm",
-            // "perold",
-            // "pilot.ja",
-            // "pilot.we",
-            // "pilot",
-            // "pilot4",
-            // "pilot87",
-            // "pilotnov",
-            // "recipe",
-            // "sc105",
-            // "sc205",
-            // "sc50a",
-            // "sc50b",
-            // "scagr25",
-            // "scagr7",
-            // "scfxm1",
-            // "scfxm2",
-            // "scfxm3",
-            // "scorpion",
-            // "scrs8",
-            "scsd1",
-            "scsd6",
-            "scsd8",
-            "sctap1",
-            "sctap2",
-            "sctap3",
-            // "seba",
-            // "share1b",
-            // "share2b",
-            // "shell",
-            // "ship04l",
-            // "ship04s",
-            // "ship08l",
-            // "ship08s",
-            // "ship12l",
-            // "ship12s",
-            // "sierra",
-            // "stair",
-            // "standata",
-            // "standgub",
-            // "standmps",
-            // "stocfor1",
-            // "stocfor2",
-            // "tuff",
-            // "vtp.base",
-            "wood1p",
-            // "woodw",
-    )]
-    case_name: &str, 
+    pub fn netlib_cases(
         #[values(
-            LinearProgramSolverType::SimplicialCholeskyMpc,
-            LinearProgramSolverType::SupernodalCholeskyMpc,
-            LinearProgramSolverType::SimplicialLuMpc
+                // "25fv47",
+                // "adlittle",
+                "afiro",
+                // "agg",
+                // "agg2",
+                // "agg3",
+                // "bandm",
+                // "beaconfd",
+                // "blend",
+                // "bnl1",
+                // "bnl2",
+                // "boeing1",
+                // "boeing2",
+                // "bore3d",
+                // "brandy",
+                // "capri",
+                // "cycle",
+                // "czprob",
+                // "d2q06c",
+                // "d6cube",
+                // "degen2",
+                // "degen3",
+                // "dfl001",
+                // "e226",
+                // "etamacro",
+                // "fffff800",
+                // "finnis",
+                "fit1d",
+                "fit1p",
+                "fit2d",
+                // "forplan",
+                // "ganges",
+                // "gfrd-pnc",
+                // "greenbea",
+                // "greenbeb",
+                "grow15",
+                "grow22",
+                "grow7",
+                // "israel",
+                // "kb2",
+                // "lotfi",
+                // "maros-r7",
+                // "maros",
+                // "modszk1",
+                // "nesm",
+                // "perold",
+                // "pilot.ja",
+                // "pilot.we",
+                // "pilot",
+                // "pilot4",
+                // "pilot87",
+                // "pilotnov",
+                // "recipe",
+                // "sc105",
+                // "sc205",
+                // "sc50a",
+                // "sc50b",
+                // "scagr25",
+                // "scagr7",
+                // "scfxm1",
+                // "scfxm2",
+                // "scfxm3",
+                // "scorpion",
+                // "scrs8",
+                "scsd1",
+                "scsd6",
+                "scsd8",
+                "sctap1",
+                "sctap2",
+                "sctap3",
+                // "seba",
+                // "share1b",
+                // "share2b",
+                // "shell",
+                // "ship04l",
+                // "ship04s",
+                // "ship08l",
+                // "ship08s",
+                // "ship12l",
+                // "ship12s",
+                // "sierra",
+                // "stair",
+                // "standata",
+                // "standgub",
+                // "standmps",
+                // "stocfor1",
+                // "stocfor2",
+                // "tuff",
+                // "vtp.base",
+                "wood1p",
+                // "woodw",
         )]
-        solver_type: LinearProgramSolverType,) {}
+        case_name: &str, 
+        #[values(
+            LinearProgramSolverType::MpcSimplicialCholesky,
+            LinearProgramSolverType::MpcSupernodalCholesky,
+            LinearProgramSolverType::MpcSimplicialLu
+        )]
+        solver_type: LPSolverType,) {}
 
     #[apply(netlib_cases)]
-    #[apply(solver_types)]
-    fn test_netlib_case(case_name: &str, solver_type: LinearProgramSolverType) {
+    // #[apply(solver_types)]
+    fn test_netlib_case(case_name: &str, solver_type: LPSolverType) {
         let lp = netlib::get_case(case_name).unwrap().model().to_owned().try_into_linear_program().unwrap();
 
         let mut state = SolverState::new(
@@ -396,14 +397,15 @@ mod test {
 
         let options = SolverOptions::new();
 
-        let mut properties = Properties {
+        let mut properties = SolverHooks {
             callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
-        let mut solver = LinearProgramSolverBuilder::new(&lp)
-            .with_solver_type(solver_type)
-            .build();
+        let mut solver = LinearProgram::solver_builder(&lp)
+            .with_solver(solver_type)
+            .build()
+            .unwrap();
         let status = solver.solve(&mut state, &mut properties);
 
         assert_eq!(status.unwrap(), crate::Status::Optimal);

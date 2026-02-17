@@ -5,8 +5,8 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, Properties, Solver, SolverOptions, SolverState, Status,
-    nlp::{NonlinearProgram, gd::stepsize::StepSize},
+    E, I, SolverHooks, Solver, SolverOptions, SolverState, Status,
+    nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
 };
 
 /// Projected gradient descent solver for nonlinear programs.
@@ -34,15 +34,6 @@ pub struct GradientDescent<'a, SS: StepSize> {
 }
 
 impl<'a, SS: StepSize> GradientDescent<'a, SS> {
-    /// Creates a new gradient descent solver for the given nonlinear program.
-    pub fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self {
-        Self {
-            nlp,
-            step: SS::new(options),
-            options: options.into(),
-        }
-    }
-
     /// Performs a single projected primal-dual gradient descent iteration.
     ///
     /// Updates `state.x` and `state.y` by taking a gradient step on the
@@ -99,11 +90,22 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
     }
 }
 
+impl<'a, SS: StepSize> NLPSolver<'a> for GradientDescent<'a, SS> {
+    /// Creates a new gradient descent solver for the given nonlinear program.
+    fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self {
+        Self {
+            nlp,
+            step: SS::new(options),
+            options: options.into(),
+        }
+    }
+}
+
 impl<'a, SS: StepSize> Solver for GradientDescent<'a, SS> {
     fn solve(
         &mut self,
         state: &mut SolverState,
-        properties: &mut Properties,
+        properties: &mut SolverHooks,
     ) -> Result<Status, Problem> {
         let max_iterations = if self.options.max_iterations > 0 {
             self.options.max_iterations as I
@@ -176,7 +178,7 @@ mod tests {
         );
 
         let options = SolverOptions::new();
-        let mut properties = Properties {
+        let mut properties = SolverHooks {
             callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(SlowProgressTerminator::new(&options)),
         };

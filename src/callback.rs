@@ -1,18 +1,13 @@
-use macros::build_option_enum;
+use std::collections::HashSet;
 
 use crate::{SolverOptions, SolverState};
 
 /// Hook invoked once per solver iteration for logging, monitoring, or early stopping.
 pub trait Callback {
-    /// Creates a new callback from solver options.
-    fn new(options: &SolverOptions) -> Self
-    where
-        Self: Sized;
-
     fn init(&mut self, _state: &SolverState) {}
 
     /// Called at the end of each iteration with the current solver state.
-    fn call(&mut self, state: &SolverState);
+    fn call(&mut self, _state: &SolverState) {}
 
     fn finish(&mut self) {}
 }
@@ -20,24 +15,23 @@ pub trait Callback {
 /// A callback that does nothing. Use when no per-iteration output is needed.
 pub struct NoOpCallback {}
 
-impl Callback for NoOpCallback {
-    fn new(_options: &SolverOptions) -> Self {
+impl NoOpCallback {
+    pub fn new() -> Self {
         Self {}
-    }
-
-    fn call(&mut self, _state: &SolverState) {
-        // Do nothing
     }
 }
 
+impl Callback for NoOpCallback {}
 /// Prints primal and dual infeasibility to stdout each iteration.
 pub struct ConvergenceOutput {}
 
-impl Callback for ConvergenceOutput {
-    fn new(_options: &SolverOptions) -> Self {
+impl ConvergenceOutput {
+    pub fn new() -> Self {
         Self {}
     }
+}
 
+impl Callback for ConvergenceOutput {
     fn init(&mut self, _state: &SolverState) {
         let header = format!(
             "| {:5} | {:8} | {:8} | {:8} | {:8} | {:8} | {:8} |",
@@ -69,10 +63,75 @@ impl Callback for ConvergenceOutput {
     }
 }
 
-build_option_enum!(
-    trait_ = Callback,
-    name = "Callbacks",
-    variants = (NoOpCallback, ConvergenceOutput),
-    new_arguments = (&SolverOptions,),
-    doc_header = "An enum representing different callbacks for the optimization solver. Each variant corresponds to a specific callback strategy."
-);
+pub struct MultiCallback {
+    callbacks: Vec<Box<dyn Callback>>,
+}
+
+impl MultiCallback {
+    pub fn new(callbacks: Vec<Box<dyn Callback>>) -> Self {
+        Self { callbacks }
+    }
+}
+
+impl Callback for MultiCallback {
+    fn init(&mut self, state: &SolverState) {
+        for cb in &mut self.callbacks {
+            cb.init(state);
+        }
+    }
+
+    fn call(&mut self, state: &SolverState) {
+        for cb in &mut self.callbacks {
+            cb.call(state);
+        }
+    }
+
+    fn finish(&mut self) {
+        for cb in &mut self.callbacks {
+            cb.finish();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CallbackType {
+    ConvergenceOutput,
+}
+
+pub struct Builder {
+    callback: HashSet<CallbackType>,
+    options: SolverOptions,
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Self {
+            callback: HashSet::new(),
+            options: SolverOptions::new(),
+        }
+    }
+
+    pub fn with_options(mut self, options: SolverOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn add_callback(mut self, callback: CallbackType) -> Self {
+        self.callback.insert(callback);
+        self
+    }
+
+    pub fn build(&self) -> Box<dyn Callback> {
+        let callbacks: Vec<Box<dyn Callback>> = self
+            .callback
+            .iter()
+            .map(|cb_type| match cb_type {
+                CallbackType::ConvergenceOutput => {
+                    Box::new(ConvergenceOutput::new()) as Box<dyn Callback>
+                }
+            })
+            .collect();
+
+        Box::new(MultiCallback::new(callbacks))
+    }
+}
