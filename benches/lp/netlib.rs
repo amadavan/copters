@@ -23,7 +23,7 @@ solver_builder!(
     MehrotraPredictorCorrector<
         'static,
         SimplicialSparseCholesky,
-        lp::mpc::augmented_system::StandardSystem<'static, SimplicialSparseCholesky>,
+        lp::mpc::augmented_system::SlackReducedSystem<'static, SimplicialSparseCholesky>,
         lp::mpc::mu_update::AdaptiveMuUpdate<'static>,
     >
 );
@@ -32,7 +32,7 @@ solver_builder!(
     MehrotraPredictorCorrector<
         'static,
         SupernodalSparseCholesky,
-        lp::mpc::augmented_system::StandardSystem<'static, SupernodalSparseCholesky>,
+        lp::mpc::augmented_system::SlackReducedSystem<'static, SupernodalSparseCholesky>,
         lp::mpc::mu_update::AdaptiveMuUpdate<'static>,
     >
 );

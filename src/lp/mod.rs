@@ -1,9 +1,5 @@
-use std::ops::Mul;
-
-use faer::traits::MulByRef;
 use faer::{Col, sparse::SparseColMat};
 use problemo::Problem;
-use problemo::ProblemResult;
 use problemo::common::IntoCommonProblem;
 
 use crate::nlp::NonlinearProgram;
@@ -101,6 +97,22 @@ impl From<LinearProgram> for QuadraticProgram {
 }
 
 #[allow(unused, non_snake_case)]
+impl From<&LinearProgram> for QuadraticProgram {
+    fn from(lp: &LinearProgram) -> Self {
+        let n = lp.get_n_vars();
+        let Q = SparseColMat::try_new_from_triplets(n, n, &[]).unwrap();
+        QuadraticProgram::new(
+            Q,
+            lp.c.clone(),
+            lp.A.clone(),
+            lp.b.clone(),
+            lp.l.clone(),
+            lp.u.clone(),
+        )
+    }
+}
+
+#[allow(unused, non_snake_case)]
 impl From<LinearProgram> for NonlinearProgram {
     fn from(lp: LinearProgram) -> Self {
         let n = lp.get_n_vars();
@@ -118,6 +130,37 @@ impl From<LinearProgram> for NonlinearProgram {
         let dg = Box::new(move |_: &Col<E>| A2.clone());
 
         NonlinearProgram::new_boxed(n, m, f, g, df, dg, None, Some(lp.l), Some(lp.u))
+    }
+}
+
+#[allow(unused, non_snake_case)]
+impl From<&LinearProgram> for NonlinearProgram {
+    fn from(lp: &LinearProgram) -> Self {
+        let n = lp.get_n_vars();
+        let m = lp.get_n_cons();
+
+        let c = lp.get_objective().clone();
+        let A = lp.get_constraint_matrix().clone();
+        let b = lp.get_rhs().clone();
+        let A2 = A.clone();
+        let c2 = c.clone();
+
+        let f = Box::new(move |x: &Col<E>| c.transpose() * x);
+        let g = Box::new(move |x: &Col<E>| A.clone() * x - &b);
+        let df = Box::new(move |x: &Col<E>| c2.clone());
+        let dg = Box::new(move |_: &Col<E>| A2.clone());
+
+        NonlinearProgram::new_boxed(
+            n,
+            m,
+            f,
+            g,
+            df,
+            dg,
+            None,
+            Some(lp.l.clone()),
+            Some(lp.u.clone()),
+        )
     }
 }
 
@@ -179,24 +222,26 @@ impl<'a> LPSolverBuilder<'a> {
                 Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                     'a,
                     SimplicialSparseCholesky,
-                    mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                    mpc::augmented_system::SlackReducedSystem<'a, SimplicialSparseCholesky>,
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
-                >::new(lp, &self.options)))
+                >::new(lp.into(), &self.options)))
             }
             LPSolverType::MpcSupernodalCholesky => {
                 Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                     'a,
                     SupernodalSparseCholesky,
-                    mpc::augmented_system::StandardSystem<'a, SupernodalSparseCholesky>,
+                    mpc::augmented_system::SlackReducedSystem<'a, SupernodalSparseCholesky>,
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
-                >::new(lp, &self.options)))
+                >::new(lp.into(), &self.options)))
             }
-            LPSolverType::MpcSimplicialLu => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
-                'a,
-                SimplicialSparseCholesky,
-                mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-                mpc::mu_update::AdaptiveMuUpdate<'a>,
-            >::new(lp, &self.options))),
+            LPSolverType::MpcSimplicialLu => {
+                Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                    'a,
+                    SimplicialSparseCholesky,
+                    mpc::augmented_system::SlackReducedSystem<'a, SimplicialSparseCholesky>,
+                    mpc::mu_update::AdaptiveMuUpdate<'a>,
+                >::new(lp.into(), &self.options)))
+            }
         }
     }
 }
@@ -216,7 +261,7 @@ mod test {
 
     use crate::{
         E, I, SolverHooks, SolverOptions, SolverState,
-        callback::{Callback, ConvergenceOutput},
+        callback::ConvergenceOutput,
         lp::LinearProgram,
         terminators::{ConvergenceTerminator, Terminator},
     };
@@ -294,7 +339,7 @@ mod test {
         let options = SolverOptions::new();
 
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new(&options)),
+            callback: Box::new(ConvergenceOutput::new()),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 

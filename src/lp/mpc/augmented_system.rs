@@ -45,7 +45,7 @@ pub trait AugmentedSystem<'a, Solver: LinearSolver> {
 ///
 /// where `D = Z_l (X-L)^{-1} + Z_u (X-U)^{-1}`. The dual directions
 /// `dz_l` and `dz_u` are recovered from `dx` after the solve.
-pub struct StandardSystem<'a, Solver: LinearSolver> {
+pub struct SlackReducedSystem<'a, Solver: LinearSolver> {
     lp: &'a LinearProgram,
     mat: SparseColMat<I, E>,
     solver: Solver,
@@ -53,7 +53,7 @@ pub struct StandardSystem<'a, Solver: LinearSolver> {
     _a: PhantomData<&'a ()>,
 }
 
-impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a, Solver> {
+impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSystem<'a, Solver> {
     fn new(lp: &'a LinearProgram) -> Self {
         // Get properties
         let (n_var, n_con) = lp.get_dims();
@@ -192,3 +192,112 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         })
     }
 }
+
+// struct FullSystem<'a, Solver: LinearSolver> {
+//     lp: &'a LinearProgram,
+//     mat: SparseColMat<I, E>,
+//     solver: Solver,
+
+//     _a: PhantomData<&'a ()>,
+// }
+
+// impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for FullSystem<'a, Solver> {
+//     fn new(lp: &LinearProgram) -> Self {
+//         // Get properties
+//         let (n_var, n_con) = lp.get_dims();
+//         let a_nnz = lp.A.compute_nnz();
+//         let n_values = n_var + 2 * a_nnz + 6 * n_var;
+
+//         let mut col_ptrs = Vec::with_capacity(n_var + n_con + 2 * n_var + 1);
+//         let mut row_indices = Vec::with_capacity(n_values);
+//         let mut values = Vec::with_capacity(n_values);
+
+//         // Set pointers for the first n_var columns (dx)
+//         let a_col_ptr = lp.A.symbolic().col_ptr();
+//         let a_row_idx = lp.A.symbolic().row_idx();
+//         let a_values = lp.A.val();
+
+//         // Set each column (0...n_var)
+//         col_ptrs.push(0);
+//         for j in 0..n_var {
+//             // A: Primal feasibility
+//             let start = a_col_ptr[j];
+//             let end = a_col_ptr[j + 1];
+//             for k in start..end {
+//                 row_indices.push(a_row_idx[k] + n_var); // A part for dx
+//                 values.push(a_values[k]);
+//             }
+
+//             // Lower bound complementarity
+//             row_indices.push(n_var + n_con + j); // Identity part for dz_l
+//             values.push(E::from(1.));
+
+//             // Upper bound complementarity
+//             row_indices.push(n_var + n_con + n_var + j); // Identity part for dz_u
+//             values.push(E::from(1.));
+
+//             col_ptrs.push(row_indices.len());
+//         }
+
+//         // Set pointers for A^T
+//         let a_csr = lp.A.to_row_major().unwrap();
+//         let a_row_ptr = a_csr.symbolic().row_ptr();
+//         let a_col_idx = a_csr.symbolic().col_idx();
+//         let a_values = a_csr.val();
+
+//         // Set columns for A^T
+//         for j in 0..n_con {
+//             let start = a_row_ptr[j];
+//             let end = a_row_ptr[j + 1];
+//             for k in start..end {
+//                 row_indices.push(a_col_idx[k]); // A^T part for dy
+//                 values.push(a_values[k]);
+//             }
+
+//             col_ptrs.push(row_indices.len());
+//         }
+
+//         // Set columns for dz_l
+//         for j in 0..n_var {
+//             //
+//             row_indices.push(j); // Identity part for dz_l
+//             values.push(E::from(1.));
+
+//             // Upper bound complementarity
+//             row_indices.push(n_var + n_con + j); // Identity part for dz_u
+//             values.push(E::from(1.));
+
+//             col_ptrs.push(row_indices.len());
+//         }
+
+//         let mat = unsafe {
+//             let sym = SymbolicSparseColMat::new_unchecked(
+//                 n_var + n_con,
+//                 n_var + n_con,
+//                 col_ptrs,
+//                 None,
+//                 row_indices,
+//             );
+//             SparseColMat::<I, E>::new(sym, values)
+//         };
+
+//         let mut solver = Solver::new();
+//         solver.analyze(mat.as_ref()).unwrap();
+
+//         Self {
+//             lp,
+//             mat,
+//             solver,
+
+//             _a: PhantomData,
+//         }
+//     }
+
+//     fn solve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<Step, Problem> {
+//         unimplemented!()
+//     }
+
+//     fn resolve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<Step, Problem> {
+//         unimplemented!()
+//     }
+// }

@@ -13,189 +13,106 @@
 
 use faer::{Col, sparse::{SparseColMat, Triplet}};
 use problemo::Problem;
+use sif_rs::SIF;
 
 use crate::{E, I, lp::LinearProgram};
 
-
-/// Fallible conversion from an MPS model into a [`LinearProgram`].
-///
-/// This is intentionally a standalone trait rather than a [`TryFrom`] impl so
-/// that it can live in this crate while both the MPS model type and
-/// [`LinearProgram`] are defined elsewhere.
-pub trait TryFromMpsModel {
-    /// Consume the MPS model and produce the equivalent [`LinearProgram`] in
-    /// standard form (`min c^T x  s.t.  Ax = b,  l <= x <= u`).
+pub trait TryFromSIF {
     fn try_into_linear_program(self) -> Result<LinearProgram, Problem>;
 }
 
-/// Converts an [`mps::model::Model<f32>`] into a [`LinearProgram`].
-///
-/// # Conversion steps
-///
-/// 1. **Index assignment** — Variable and constraint names are sorted
-///    lexicographically ([`BTreeSet`](std::collections::BTreeSet)) and mapped to
-///    contiguous `0..n` indices so the resulting matrices are deterministic
-///    regardless of parse order.
-/// 2. **Objective extraction** — Coefficients on the `Nr`-typed row become the
-///    cost vector `c`; that row is excluded from the constraint matrix.
-/// 3. **Constraint matrix & RHS** — Non-zero coefficients on non-`Nr` rows form
-///    the sparse column-major matrix `A`, and the corresponding RHS values form
-///    the vector `b`.
-/// 4. **Bounds** — MPS bound records are translated into per-variable lower (`l`)
-///    and upper (`u`) bound vectors. Default bounds are `0 <= x_j <= +inf`.
-/// 5. **Slack variables** — Each `<=` constraint gets a `+1` slack column; each
-///    `>=` constraint gets a `-1` slack column, converting inequalities to
-///    equalities.
-///
-/// # Errors
-///
-/// Returns a [`Problem`] if the sparse matrix cannot be constructed from the
-/// generated triplets (e.g. duplicate or out-of-bounds entries).
-impl TryFromMpsModel for mps::model::Model<f32> {
-    fn try_into_linear_program(self) -> Result<LinearProgram, Problem> {
-        // Get the bound type
-        let rhs_type = {
-            self
-                .row_types
-                .0
-                .iter()
-                .collect::<std::collections::HashMap<_, _>>()
-        };
-        
+impl TryFromSIF for SIF {
+    fn try_into_linear_program(self) -> Result<LinearProgram, Problem> {        
         // Map variable and constraint names to their respective internal indices
         // Use BTreeSet/BTreeMap for deterministic ordering of indices
-        let map_var_idx: std::collections::BTreeMap<_, _> = self
-            .values.0.iter()
-            .map(|((_, var), _)| var.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .enumerate()
-            .map(|(i, var_name)| (var_name, i))
-            .collect();
-        let map_con_idx: std::collections::BTreeMap<_, _> = self
-            .row_types.0.iter()
-            .map(|(name, _)| name.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .filter(|con_name| rhs_type.get(con_name) != Some(&&mps::types::RowType::Nr)) // Filter out objective function row
-            .enumerate()
-            .map(|(i, con_name)| (con_name, i))
-            .collect();
+        let map_var_idx: std::collections::BTreeMap<_, _> = self.get_cols().into_iter().map(|(var_name, _)| var_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().enumerate().map(|(i, var_name)| (var_name, i)).collect();
+        let map_con_idx: std::collections::BTreeMap<_, _> = self.get_rows().into_iter().filter(|(_, rhs_type)| rhs_type != &&sif_rs::types::RowType::N).map(|(con_name, _)| con_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().enumerate().map(|(i, con_name)| (con_name, i)).collect();
 
         let (n_var, n_con) = (map_var_idx.len(), map_con_idx.len());
-               
-        // Add slack variables for inequalities
-        let n_slack = self
-            .row_types
-            .0
-            .iter()
-            .filter(|(_, row_type)| **row_type == mps::types::RowType::Leq || **row_type == mps::types::RowType::Geq)
-            .count();
+
+        // Get number of slack variables
+        let n_slack = self.get_rows().iter().filter(|(_, rhs_type)| **rhs_type == sif_rs::types::RowType::L || **rhs_type == sif_rs::types::RowType::G).count();
 
         // Construct the objective function
         let mut c = Col::zeros(n_var + n_slack);
-        self
-            .values
-            .0
-            .iter()
-            .filter(|((con, _var), _)| 
+        self.get_entries().iter().filter(|((con, _var), _)| 
                 // Filter out non-objective function coefficients
-                rhs_type.get(con) == Some(&&mps::types::RowType::Nr))
+                self.get_rows().get(con) == Some(&&sif_rs::types::RowType::N))
             .for_each(|((_con, var), &val)| {
                 let j = map_var_idx[var];
                 c[j] = E::from(val);
             });
 
         // Construct the right-hand side vector
-        let b = {
-            let mut b = Col::zeros(n_con);
-            self
-                .rhs
-                .0
-                .iter()
-                .flat_map(|(_con, rhs)| {
-                    // We don't care about constraint bound names
-                    rhs.iter()
-                })
-                .filter(|(con, _val)| {
-                    // Filter out objective function coefficients
-                    rhs_type.get(con) != Some(&&mps::types::RowType::Nr)
-                })
-                .for_each(|(con, &val)| {
-                    let i = map_con_idx[con];
-                    b[i] = E::from(val);
-                });
+        let b = self.get_rhs().into_iter().filter(|(con, _val)| self.get_rows().get(*con) != Some(&&sif_rs::types::RowType::N)).map(|(con, val)| {
+            let i = map_con_idx[con];
+            (i, val)
+        }).fold(Col::zeros(n_con), |mut b, (i, val)| {
+            b[i] = E::from(*val);
             b
-        };
+        });
 
-        // Construct the constraint matrix in triplet form
-        let a_triplets = self
-            .values
-            .0
-            .iter()
-            .filter(|((con, _var), val)| {
+        let a_triplets = self.get_entries().iter().filter(|((con, _var), val)| {
                 // Filter out zero coefficients and objective function coefficients
                 if **val == 0. {
                     return false;
                 }
 
-                if rhs_type.get(con) == Some(&&mps::types::RowType::Nr) {
+                if self.get_rows().get(con) == Some(&&sif_rs::types::RowType::N) {
                     return false;
                 }
 
                 true
-            })
-            .map(|(i, &val)| {
+            }).map(|(i, &val)| {
                 let (i, j) = (map_con_idx[&i.0], map_var_idx[&i.1]);
                 Triplet::new(I::from(i), I::from(j), E::from(val))
-            })
-            .collect::<Vec<_>>();
+            }).collect::<Vec<_>>();
 
         // Construct bounds
         let mut l = Col::<E>::zeros(n_var + n_slack);
         let mut u = E::INFINITY * Col::<E>::ones(n_var + n_slack);
-        self.bounds.0.iter().flat_map(| (_name, map) | map.iter() ).for_each(|((var_name, bound_type), val)| {
+        self.get_bounds().into_iter().for_each(|(var_name, (bound_type, val))| {
                 let j = map_var_idx[var_name];
 
                 match bound_type {
-                    mps::types::BoundType::Lo => {
-                        l[j] = E::from(val.unwrap());
+                    sif_rs::types::BoundType::Lo => {
+                        l[j] = E::from(*val);
                     }
-                    mps::types::BoundType::Up => {
-                        u[j] = E::from(val.unwrap());
+                    sif_rs::types::BoundType::Up => {
+                        u[j] = E::from(*val);
                     }
-                    mps::types::BoundType::Fr => {
+                    sif_rs::types::BoundType::Fr => {
                         l[j] = -E::INFINITY;
                         u[j] = E::INFINITY;
                     }
-                    mps::types::BoundType::Mi => {
+                    sif_rs::types::BoundType::Mi => {
                         l[j] = -E::INFINITY;
                         u[j] = E::from(0.);
                     }
-                    mps::types::BoundType::Pl => {
+                    sif_rs::types::BoundType::Pl => {
                         l[j] = E::from(0.);
                         u[j] = E::INFINITY;
                     }
-                    mps::types::BoundType::Fx => {
+                    sif_rs::types::BoundType::Fx => {
                         // TODO: cannot currently handle fixed variables properly because we need to ensure the initial iterate is strictly feasible. For now, we just add a small tolerance around the fixed value.
-                        l[j] = E::from(val.unwrap() - 0.01);
-                        u[j] = E::from(val.unwrap() + 0.01);
+                        l[j] = E::from(*val - 0.01);
+                        u[j] = E::from(*val + 0.01);
                     }
-                    // mps::types::BoundType::Bv => {
+                    // sif_rs::types::BoundType::Bv => {
                     //     l[j] = E::from(0.);
                     //     u[j] = E::from(1.);
                     // }
-                    // mps::types::BoundType::Li => {
-                    //     l[j] = E::from(val.unwrap());
+                    // sif_rs::types::BoundType::Li => {
+                    //     l[j] = E::from(*val);
                     //     u[j] = E::INFINITY;
                     // }
-                    // mps::types::BoundType::Ui => {
+                    // sif_rs::types::BoundType::Ui => {
                     //     l[j] = -E::INFINITY;
-                    //     u[j] = E::from(val.unwrap());
+                    //     u[j] = E::from(*val);
                     // }
-                    // mps::types::BoundType::Sc => {
+                    // sif_rs::types::BoundType::Sc => {
                     //     // Special case for semi-continuous variables: either 0 or above a threshold
-                    //     l[j] = E::from(val.unwrap());
+                    //     l[j] = E::from(*val);
                     //     u[j] = E::INFINITY;
                     // }
                     _ => panic!("Unsupported bound type: {:?}", bound_type),
@@ -204,13 +121,13 @@ impl TryFromMpsModel for mps::model::Model<f32> {
 
         // Add slack variable coefficients to the constraint matrix
         let slack_triplets = map_con_idx.iter()
-            .map(| (con_name, &i)| (rhs_type[con_name], i))
-            .filter(|(con_type, _)| **con_type == mps::types::RowType::Leq || **con_type == mps::types::RowType::Geq)
+            .map(| (con_name, &i)| (self.get_rows()[con_name], i))
+            .filter(|(con_type, _)| *con_type == sif_rs::types::RowType::L || *con_type == sif_rs::types::RowType::G)
             .enumerate()
             .map(|(i, (con_type, j))| {
                 match con_type {
-                    mps::types::RowType::Leq => Triplet::new(I::from(j), I::from(n_var + i), E::from(1.)),
-                    mps::types::RowType::Geq => Triplet::new(I::from(j), I::from(n_var + i), E::from(-1.)),
+                    sif_rs::types::RowType::L => Triplet::new(I::from(j), I::from(n_var + i), E::from(1.)),
+                    sif_rs::types::RowType::G => Triplet::new(I::from(j), I::from(n_var + i), E::from(-1.)),
                     _ => unreachable!(),
                 }
             });
@@ -227,44 +144,15 @@ impl TryFromMpsModel for mps::model::Model<f32> {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     use faer::Col;
     use rstest::rstest;
     use rstest_reuse::{apply, template};
 
-    use loaders::netlib;
-
     use crate::{
-        E, SolverHooks, SolverOptions, SolverState, callback::{Callback, ConvergenceOutput}, interface::netlib::TryFromMpsModel, lp::{LinearProgram, LPSolver, LPSolverBuilder, LPSolverType}, terminators::{ConvergenceTerminator, Terminator}
+        E, SolverHooks, SolverOptions, SolverState, callback::{ConvergenceOutput}, lp::{LinearProgram, LPSolverType}, terminators::{ConvergenceTerminator, Terminator}
     };
-
-    // fn get_netlib_case(name: &str) -> &'static LinearProgram {
-    //     NETLIB_LPS.get(name).unwrap()
-    // }
-    
-    // type MPCSimplicial<'a> = mpc::MehrotraPredictorCorrector<
-    //     'a,
-    //     SimplicialSparseCholesky,
-    //     mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-    //     mpc::mu_update::AdaptiveMuUpdate<'a>,
-    // >;
-    // type MPCSupernodal<'a> = mpc::MehrotraPredictorCorrector<
-    //     'a,
-    //     SimplicialSparseCholesky,
-    //     mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
-    //     mpc::mu_update::AdaptiveMuUpdate<'a>,
-    // >;
-    
-    #[template]
-    #[rstest]
-    pub fn solver_types(
-        #[values(
-            LinearProgramSolverType::SimplicialCholeskyMpc,
-            LinearProgramSolverType::SupernodalCholeskyMpc,
-            LinearProgramSolverType::SimplicialLuMpc
-        )]
-        solver_type: LPSolverType,
-    ) {
-    }
 
     #[template]
     #[rstest]
@@ -364,16 +252,16 @@ mod test {
         )]
         case_name: &str, 
         #[values(
-            LinearProgramSolverType::MpcSimplicialCholesky,
-            LinearProgramSolverType::MpcSupernodalCholesky,
-            LinearProgramSolverType::MpcSimplicialLu
+            LPSolverType::MpcSimplicialCholesky,
+            LPSolverType::MpcSupernodalCholesky,
+            LPSolverType::MpcSimplicialLu
         )]
         solver_type: LPSolverType,) {}
 
     #[apply(netlib_cases)]
     // #[apply(solver_types)]
     fn test_netlib_case(case_name: &str, solver_type: LPSolverType) {
-        let lp = netlib::get_case(case_name).unwrap().model().to_owned().try_into_linear_program().unwrap();
+        let lp = loaders::sif::netlib::get_case(case_name).unwrap().try_into_linear_program().unwrap();
 
         let mut state = SolverState::new(
             Col::ones(lp.get_n_vars()),
@@ -398,7 +286,7 @@ mod test {
         let options = SolverOptions::new();
 
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new(&options)),
+            callback: Box::new(ConvergenceOutput::new()),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
@@ -412,9 +300,8 @@ mod test {
     }
 
     #[test]
-    pub fn test_lp_from_mps_afiro() {
-        let model = loaders::netlib::get_case("afiro").unwrap().model().to_owned();
-        let lp = model.try_into_linear_program().unwrap();
+    pub fn test_lp_from_sif_afiro() {
+        let lp = loaders::sif::netlib::get_case("afiro").unwrap().try_into_linear_program().unwrap();
 
         assert_eq!(lp.get_n_vars(), 32 + 19); // 32 original variables + 19 slack variables for inequalities
         assert_eq!(lp.get_n_cons(), 27);

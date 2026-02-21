@@ -22,7 +22,7 @@ use crate::{E, I, OptionTrait, Solver, SolverOptions};
 /// (optional) Hessian of the Lagrangian. The vectors `l` and `u` are optional
 /// lower and upper bounds on the decision variables.
 #[allow(unused)]
-#[use_option(name = "nlp_solver_type", type_ = crate::nlp::NLPSolverType, default = "GradientDescent", description = "Type of NLP solver to use.")]
+#[use_option(name = "nlp_solver_type", type_ = crate::nlp::NLPSolverType, default = "gradient_descent", description = "Type of NLP solver to use.")]
 pub struct NonlinearProgram {
     /// Number of decision variables.
     n_var: I,

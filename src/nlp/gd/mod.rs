@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, SolverHooks, Solver, SolverOptions, SolverState, Status,
+    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
 };
 
@@ -179,7 +179,7 @@ mod tests {
 
         let options = SolverOptions::new();
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new(&options)),
+            callback: Box::new(ConvergenceOutput::new()),
             terminator: Box::new(SlowProgressTerminator::new(&options)),
         };
 
