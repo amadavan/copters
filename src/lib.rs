@@ -29,6 +29,9 @@ pub mod qp;
 pub mod stochastic;
 pub mod terminators;
 
+#[cfg(test)]
+pub mod tests;
+
 pub trait OptionTrait: Any + Sync + Send + DynClone {}
 impl OptionTrait for &'static str {}
 impl OptionTrait for String {}
