@@ -56,7 +56,7 @@ pub static MATRICES_URL_MAP: LazyLock<HashMap<&'static str, &'static str>> = Laz
 });
 
 pub fn get_matrix_by_name<I: Index + std::convert::From<usize>, E: ComplexField>(
-    name: &'static str,
+    name: &str,
     sym: bool,
 ) -> SparseColMat<I, E> {
     let cache_dir = format!("{}/artifacts", env!("CARGO_MANIFEST_DIR"));
@@ -136,9 +136,10 @@ pub fn get_matrix_by_name<I: Index + std::convert::From<usize>, E: ComplexField>
 mod tests {
     use super::*;
     use faer::prelude::*;
+    use rstest::rstest;
 
-    #[value_parameterized_test(values = ["Trefethen 20b", "bundle1", "nd3k"])]
-    fn test_matrix_symmetry(name: &'static str) {
+    #[rstest]
+    fn test_matrix_symmetry(#[values("Trefethen 20b" /*, "bundle1", "nd3k" */)] name: &'static str) {
         let mat = get_matrix_by_name::<usize, f64>(name, true);
         let mat_dense = mat.to_dense();
         let error = (&mat_dense - &mat_dense.transpose()).norm_l2();

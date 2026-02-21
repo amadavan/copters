@@ -33,19 +33,16 @@
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
 
-use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::perm::Perm;
 use faer::prelude::{Reborrow, ReborrowMut};
+use faer::sparse::SparseColMatRef;
 use faer::sparse::linalg::colamd;
 use faer::sparse::linalg::lu::simplicial::{self, SimplicialLu};
-use faer::sparse::SparseColMatRef;
 use faer::{Mat, MatMut, MatRef};
-use snafu::prelude::*;
+use problemo::{Problem, ProblemResult};
 
-use crate::linalg::solver::{
-    LuFactorizationSnafu, MemoryAllocationSnafu, MemoryReservationSnafu, Solver, SolverError,
-    SymbolicFactorizationSnafu, UninitializedSnafu,
-};
+use crate::linalg::solver::{LinearSolver, LinearSolverError, Solver};
 use crate::{E, I};
 
 /// Sparse LU solver using the simplicial factorization method.
@@ -77,7 +74,7 @@ impl Solver for SimplicialSparseLu {
     }
 
     /// Performs symbolic analysis of the input matrix and computes fill-reducing column permutation.
-    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn analyze(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         let nrows = mat.nrows();
         let ncols = mat.ncols();
         let nnz = mat.compute_nnz();
@@ -90,15 +87,15 @@ impl Solver for SimplicialSparseLu {
             let mut perm = Vec::new();
             let mut perm_inv = Vec::new();
             perm.try_reserve_exact(ncols)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm_inv
                 .try_reserve_exact(ncols)
-                .context(MemoryReservationSnafu {})?;
+                .via(LinearSolverError::MemoryReservation)?;
             perm.resize(ncols, 0usize);
             perm_inv.resize(ncols, 0usize);
 
             let mut mem = MemBuffer::try_new(colamd::order_scratch::<usize>(nrows, ncols, nnz))
-                .context(MemoryAllocationSnafu {})?;
+                .via(LinearSolverError::MemoryAllocation)?;
 
             colamd::order(
                 &mut perm,
@@ -107,9 +104,7 @@ impl Solver for SimplicialSparseLu {
                 colamd::Control::default(),
                 MemStack::new(&mut mem),
             )
-            .context(SymbolicFactorizationSnafu {
-                message: "Failed to compute COLAMD ordering".to_string(),
-            })?;
+            .via(LinearSolverError::SymbolicFactorization)?;
 
             (perm, perm_inv)
         };
@@ -125,10 +120,11 @@ impl Solver for SimplicialSparseLu {
     }
 
     /// Performs numeric LU factorization of the matrix after symbolic analysis.
-    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
-        let col_perm = self.col_perm.as_ref().context(UninitializedSnafu {
-            message: "Column permutation",
-        })?;
+    fn factorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
+        let col_perm = self
+            .col_perm
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
 
         let nrows = mat.nrows();
         let ncols = mat.ncols();
@@ -138,10 +134,10 @@ impl Solver for SimplicialSparseLu {
         let mut row_perm_inv = Vec::new();
         row_perm
             .try_reserve_exact(nrows)
-            .context(MemoryReservationSnafu {})?;
+            .via(LinearSolverError::MemoryReservation)?;
         row_perm_inv
             .try_reserve_exact(nrows)
-            .context(MemoryReservationSnafu {})?;
+            .via(LinearSolverError::MemoryReservation)?;
         row_perm.resize(nrows, 0usize);
         row_perm_inv.resize(nrows, 0usize);
 
@@ -149,11 +145,10 @@ impl Solver for SimplicialSparseLu {
         let mut lu = SimplicialLu::new();
 
         // Numeric factorization
-        let mut mem = MemBuffer::try_new(simplicial::factorize_simplicial_numeric_lu_scratch::<
-            I,
-            E,
-        >(nrows, ncols))
-        .context(MemoryAllocationSnafu {})?;
+        let mut mem = MemBuffer::try_new(
+            simplicial::factorize_simplicial_numeric_lu_scratch::<I, E>(nrows, ncols),
+        )
+        .via(LinearSolverError::MemoryAllocation)?;
         let mut stack = MemStack::new(&mut mem);
 
         simplicial::factorize_simplicial_numeric_lu::<I, E>(
@@ -164,9 +159,7 @@ impl Solver for SimplicialSparseLu {
             col_perm.as_ref(),
             &mut stack,
         )
-        .context(LuFactorizationSnafu {
-            message: "Failed to factorize numeric LU".to_string(),
-        })?;
+        .via(LinearSolverError::NumericFactorization)?;
 
         self.row_perm = Some(unsafe {
             Perm::new_unchecked(row_perm.into_boxed_slice(), row_perm_inv.into_boxed_slice())
@@ -177,26 +170,32 @@ impl Solver for SimplicialSparseLu {
     }
 
     /// Refactorizes the matrix.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), SolverError> {
+    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
         self.factorize(mat)
     }
 
     /// Solves the linear system in place for the given right-hand side vector `b`.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), SolverError> {
-        let lu = self.lu.as_ref().context(UninitializedSnafu {
-            message: "LU factorization",
-        })?;
-        let row_perm = self.row_perm.as_ref().context(UninitializedSnafu {
-            message: "Row permutation",
-        })?;
-        let col_perm = self.col_perm.as_ref().context(UninitializedSnafu {
-            message: "Column permutation",
-        })?;
+    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+        let lu = self.lu.as_ref().ok_or(LinearSolverError::Uninitialized)?;
+        let row_perm = self
+            .row_perm
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
+        let col_perm = self
+            .col_perm
+            .as_ref()
+            .ok_or(LinearSolverError::Uninitialized)?;
 
         let nrows = lu.nrows();
         let nrhs = sol.ncols();
 
-        let mut work = Mat::zeros(nrows, nrhs);
+        let mut mem = MemBuffer::try_new(StackReq::all_of(&[
+            // simplicial::factorize_simplicial_numeric_ldlt_scratch::<usize, f64>(dim),
+            faer::perm::permute_rows_in_place_scratch::<usize, f64>(nrows, 1),
+            simplicial::solve_in_place_scratch::<usize, f64>(nrows, nrhs, faer::Par::Seq),
+        ]))
+        .via(LinearSolverError::MemoryAllocation)?;
+        let stack = MemStack::new(&mut mem);
 
         lu.solve_in_place_with_conj(
             row_perm.as_ref(),
@@ -204,13 +203,13 @@ impl Solver for SimplicialSparseLu {
             faer::Conj::No,
             sol.rb_mut(),
             faer::Par::Seq,
-            work.as_mut(),
+            stack,
         );
 
         Ok(())
     }
 
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, SolverError> {
+    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
         let mut sol = Mat::zeros(b.nrows(), b.ncols());
         sol.copy_from(b);
         self.solve_in_place(&mut sol.as_mut())?;
@@ -230,6 +229,8 @@ impl SimplicialSparseLu {
         }
     }
 }
+
+impl LinearSolver for SimplicialSparseLu {}
 
 #[cfg(test)]
 mod tests {
@@ -260,7 +261,7 @@ mod tests {
 
             let result = solver.solve(col.as_ref()).expect("Unable to solve");
 
-            println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
+            // println!("SolverError: {:e}", (&col - &mat * &result).norm_l2());
             assert!((&col - &mat * &result).norm_l2() < 1e-10); // Check if Ax ≈ b
         }
     }

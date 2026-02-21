@@ -15,7 +15,14 @@ $
 $
 where $bold(e)$ is the vector of all ones, and the matrices $bold(X)$, $underline(bold(X))$, $overline(bold(X))$, $underline(bold(Z))$, and $overline(bold(Z))$ are diagonal matrices with the elements of the corresponding vectors on their diagonals. The parameter $mu$ is used to ensure positivity of complimentary slackness conditions. It can be seen that this is equivalent to @eq.lp.kkt for $mu = 0$.
 
-The Mehrotra Predictor-Corrector algorithm aims to solve a linearization of the above system, while simultaneosly driving $mu$ to zero. The linearization of the system is given by:
+The Mehrotra Predictor-Corrector algorithm aims to solve a linearization of the above system, while simultaneosly driving $mu$ to zero. The linearization is given by:
+$
+  & bold(A) (bold(x) + Delta bold(x)) - bold(b) = 0, \
+  & bold(c) - bold(A)^T (bold(y) + Delta bold(y)) - (underline(bold(z)) + Delta underline(bold(z))) - (overline(bold(z)) + Delta overline(bold(z))) = 0, \
+  & (bold(X) - bold(L)) underline(bold(Z)) bold(e) + (bold(X) - bold(L)) Delta underline(bold(z)) + underline(bold(Z) Delta bold(x)) = sigma mu bold(e), \
+  & (bold(X) - bold(U)) overline(bold(Z)) bold(e) + (bold(X) - bold(U)) Delta overline(bold(z)) + overline(bold(Z) Delta bold(x)) = sigma mu bold(e). \
+$
+Collecting constant terms on the right-hand side, this yields the following system of equations in the search directions $Delta bold(x)$, $Delta bold(y)$, $Delta underline(bold(z))$, and $Delta overline(bold(z))$:
 $
   & bold(A) Delta bold(x) = bold(b) - bold(A) bold(x), \
   & -bold(A)^T Delta bold(y) - Delta underline(bold(z)) + Delta overline(bold(z)) = bold(c) - bold(A)^T bold(y) - underline(bold(z)) + overline(bold(z)), \
@@ -35,5 +42,21 @@ $
   alpha_p <= (underline(bold(x))_i - bold(x)_i) / (Delta bold(x)_i) #h(1em) forall i, Delta bold(x)_i < 0.
 $
 We ensure this condition by ensuring that $alpha_p$ is less than or equal to the minimum of the right-hand side over all $i$ where $Delta bold(x)_i < 0$. To provide some margin, we typically scale this value by a factor in $(0, 1)$. A similar process can be used to identify the dual step size $alpha_d$.
+
+The system of equations in @eq.mpc.system can be reduced to variables in $Delta bold(x), Delta bold(y)$, by noting that $Delta underline(bold(z))$ and $Delta bold(overline(bold(z)))$ can be expressed in terms of $Delta bold(x)$. Specifically, we have:
+$
+  Delta underline(bold(z)) &= (bold(X) - bold(L))^(-1) (sigma mu bold(e) - (bold(X) - bold(L)) underline(bold(Z)) bold(e) - underline(bold(Z)) Delta bold(x)), \
+  &= (bold(X) - bold(L))^(-1) sigma mu bold(e) - underline(bold(z)) - (bold(X) - bold(L))^(-1) underline(bold(Z)) Delta bold(x), \
+  Delta overline(bold(z)) &= (bold(X) - bold(U))^(-1) (sigma mu bold(e) - (bold(X) - bold(U)) overline(bold(Z)) bold(e) - overline(bold(Z)) Delta bold(x)), \
+  &= (bold(X) - bold(U))^(-1) sigma mu bold(e) - overline(bold(z)) - (bold(X) - bold(U))^(-1) overline(bold(Z)) Delta bold(x)).
+$ <eq.mpc.zdx>
+The system @eq.mpc.system can then be reduced to the following system in $Delta bold(x)$ and $Delta bold(y)$:
+$
+  & bold(A) Delta bold(x) = bold(b) - bold(A) bold(x), \
+  & -((bold(X) - bold(L))^(-1) underline(bold(Z)) + (bold(X) - bold(U))^(-1) overline(bold(Z))) Delta bold(x) + bold(A)^T Delta bold(y) \
+  & #h(2em) = bold(c) - bold(A)^T bold(y) - underline(bold(z)) - overline(bold(z)) + underline(bold(z)) + overline(bold(z)) - sigma mu (bold(X) - bold(L))^(-1) bold(e) - sigma mu (bold(X) - bold(U))^(-1) bold(e), \
+  & #h(2em) = bold(c) - bold(A)^T bold(y) - sigma mu ( (bold(X) - bold(L))^(-1) +(bold(X) - bold(U))^(-1) ) bold(e),
+$
+and $Delta underline(bold(z))$ and $Delta overline(bold(z))$ are as defined in @eq.mpc.zdx. Note that this formulation retains the sparsity of the original problem. This allows the usage of sparse linear system solvers, such as Cholesky factorization to efficiently solve the system of equations.
 
 // === Implementing Mehrotra's Predictor-Corrector

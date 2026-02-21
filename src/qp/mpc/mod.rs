@@ -5,10 +5,10 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, SolverHooks, Solver, SolverOptions, SolverState, Status,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
-    lp::{
-        LPSolver, LinearProgram,
+    qp::{
+        QPSolver, QuadraticProgram,
         mpc::{augmented_system::AugmentedSystem, mu_update::MuUpdate},
     },
 };
@@ -76,13 +76,13 @@ pub struct MehrotraPredictorCorrector<
     Sys: AugmentedSystem<'a, LinSolve>,
     MU: MuUpdate<'a>,
 > {
-    lp: &'a LinearProgram,
+    qp: &'a QuadraticProgram,
 
     system: Sys,
     mu_updater: MU,
 
-    aff_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
-    cc_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
+    aff_ls: fn(&'a QuadraticProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
+    cc_ls: fn(&'a QuadraticProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
 
     _solver: PhantomData<LinSolve>,
 }
@@ -97,15 +97,15 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         // Compute the residuals based on the current state
         Residual {
             // Dual feasibility: c - A^T y - z_l - z_u
-            dual_feasibility: &self.lp.c
-                - self.lp.A.transpose() * &state.y
+            dual_feasibility: &self.qp.c
+                - self.qp.A.transpose() * &state.y
                 - &state.z_l
                 - &state.z_u,
             // Primal feasibility: b - A x
-            primal_feasibility: &self.lp.b - &self.lp.A * &state.x,
+            primal_feasibility: &self.qp.b - &self.qp.A * &state.x,
             // Complimentary slackness
-            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.lp.l).as_ref()), // Placeholder
-            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.lp.u).as_ref()), // Placeholder
+            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.qp.l).as_ref()), // Placeholder
+            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.qp.u).as_ref()), // Placeholder
         }
     }
 
@@ -133,7 +133,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         // Affine Step
         let aff_step = self.system.solve(state, &residual)?;
         let (alpha_aff_primal, alpha_aff_dual) =
-            (self.aff_ls)(self.lp, &self.options.root, state, &aff_step);
+            (self.aff_ls)(self.qp, &self.options.root, state, &aff_step);
 
         // Center-Corrector Step
         let mut state_aff = state.clone();
@@ -153,7 +153,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
 
         let corr_step = self.system.solve(state, &residual)?;
         let (alpha_corr_primal, alpha_corr_dual) =
-            (self.cc_ls)(self.lp, &self.options.root, state, &corr_step);
+            (self.cc_ls)(self.qp, &self.options.root, state, &corr_step);
 
         // Update the state with the corrector step and step lengths
         state.x += alpha_corr_primal * &corr_step.dx;
@@ -164,14 +164,10 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.alpha_dual = alpha_corr_dual;
 
         let residual = self.compute_residual(state);
-        state.primal_infeasibility =
-            residual.get_primal_feasibility().norm_l2() / self.lp.get_n_vars() as E;
-        state.dual_infeasibility =
-            residual.get_dual_feasibility().norm_l2() / self.lp.get_n_cons() as E;
-        state.complimentary_slack_lower =
-            residual.get_complementarity_lower().norm_l2() / self.lp.get_n_vars() as E;
-        state.complimentary_slack_upper =
-            residual.get_complementarity_upper().norm_l2() / self.lp.get_n_vars() as E;
+        state.primal_infeasibility = residual.get_primal_feasibility().norm_l2();
+        state.dual_infeasibility = residual.get_dual_feasibility().norm_l2();
+        state.complimentary_slack_lower = residual.get_complementarity_lower().norm_l2();
+        state.complimentary_slack_upper = residual.get_complementarity_upper().norm_l2();
 
         state.status = Status::InProgress;
 
@@ -179,14 +175,14 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     }
 }
 
-impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> LPSolver<'a>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> QPSolver<'a>
     for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
-    fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self {
+    fn new(qp: &'a QuadraticProgram, options: &SolverOptions) -> Self {
         Self {
-            lp,
-            system: Sys::new(lp),
-            mu_updater: MU::new(lp, options),
+            qp,
+            system: Sys::new(qp),
+            mu_updater: MU::new(qp, options),
 
             aff_ls: line_search::compute_max_step_length,
             cc_ls: line_search::compute_max_step_length,
