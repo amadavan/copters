@@ -89,6 +89,9 @@ pub mod netlib {
             case_name.to_uppercase()
         );
         if !Path::new(&file_path).exists() {
+            download_netlib_lp()?;
+        }
+        if !Path::new(&file_path).exists() {
             return Err(format!(
                 "SIF file for case '{}' not found at '{}'",
                 case_name, file_path
@@ -110,6 +113,9 @@ pub mod maros_mezaros {
             crate::get_cache_dir(),
             case_name.to_uppercase()
         );
+        if !Path::new(&file_path).exists() {
+            download_maros_mezaros_qp()?;
+        }
         if !Path::new(&file_path).exists() {
             return Err(format!(
                 "SIF file for case '{}' not found at '{}'",
@@ -161,24 +167,27 @@ mod tests {
     #[rstest]
     pub fn netlib_cases(
         #[values(
-            "25fv47", "adlittle", "afiro", "agg", "agg2", "agg3", "bandm", "beaconfd", "blend",
-            "bnl1", "bnl2", "boeing1", "boeing2", "bore3d", "brandy", "capri", "cycle", "czprob",
-            "d2q06c", "d6cube", "degen2", "degen3", "dfl001", "e226", "etamacro", "fffff800",
-            "finnis", "fit1d", "fit1p", "fit2d", "forplan", "ganges", "gfrd-pnc", "greenbea",
-            "greenbeb", "grow15", "grow22", "grow7", "israel", "kb2", "lotfi", "maros-r7", "maros",
-            "modszk1", "nesm", "perold", "pilot.ja", "pilot.we", "pilot", "pilot4", "pilot87",
-            "pilotnov", "recipe", "sc105", "sc205", "sc50a", "sc50b", "scagr25", "scagr7",
-            "scfxm1", "scfxm2", "scfxm3", "scorpion", "scrs8", "scsd1", "scsd6", "scsd8", "sctap1",
-            "sctap2", "sctap3", "seba", "share1b", "share2b", "shell", "ship04l", "ship04s",
-            "ship08l", "ship08s", "ship12l", "ship12s", "sierra", "stair", "standata", "standgub",
-            "standmps", "stocfor1", "stocfor2", "tuff", "vtp.base", "wood1p", "woodw"
+            "25fv47", "80bau3b", "adlittle", "afiro", "agg", "agg2", "agg3", "bandm", "beaconfd",
+            "blend", "bnl1", "bnl2", "boeing1", "boeing2", "bore3d", "brandy", "capri", "cre-a",
+            "cre-b", "cre-c", "cre-d", "cycle", "czprob", "d2q06c", "d6cube", "degen2", "degen3",
+            "dfl001", "e226", "etamacro", "fffff800", "finnis", "fit1d", "fit1p", "fit2d", "fit2p",
+            "forplan", "ganges", "gfrd-pnc", "greenbea", "greenbeb", "grow15", "grow22", "grow7",
+            "israel", "kb2", "ken-07", "ken-11", "ken-13", "ken-18", "lotfi", "maros-r7", "maros",
+            "modszk1", "nesm", "osa-07", "osa-14", "osa-30", "osa-60", "pds-02", "pds-06",
+            "pds-10", "pds-20", "perold", "pilot-ja", "pilot-we", "pilot", "pilot4", "pilot87",
+            "pilotnov", "qap8", "qap12", "qap15", "recipelp", "sc105", "sc205", "sc50a", "sc50b",
+            "scagr25", "scagr7", "scfxm1", "scfxm2", "scfxm3", "scorpion", "scrs8", "scsd1",
+            "scsd6", "scsd8", "sctap1", "sctap2", "sctap3", "seba", "share1b", "share2b", "shell",
+            "ship04l", "ship04s", "ship08l", "ship08s", "ship12l", "ship12s", "sierra", "stair",
+            "standata", "standgub", "standmps", "stocfor1", "stocfor2", "tuff", "vtp-base",
+            "wood1p", "woodw"
         )]
         case_name: &str,
     ) {
     }
 
     #[apply(maros_mezaros_cases)]
-    fn test_get_maros_mezaros_qp(case_name: &str) {
+    fn get_maros_mezaros_qp(case_name: &str) {
         let case_name = case_name.to_uppercase();
         let _ =
             maros_mezaros::get_case(&case_name).expect("Failed to get Maros-Mezaros QP dataset");
@@ -195,7 +204,7 @@ mod tests {
     }
 
     #[apply(netlib_cases)]
-    fn test_get_netlib_lp(case_name: &str) {
+    fn get_netlib_lp(case_name: &str) {
         let case_name = case_name.to_uppercase();
         netlib::get_case(&case_name).expect("Failed to get Netlib LP dataset");
 
