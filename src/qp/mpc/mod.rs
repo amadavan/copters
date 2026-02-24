@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, SolverHooks, Solver, SolverOptions, SolverState, Status,
+    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     qp::{
         QPSolver, QuadraticProgram,
@@ -28,7 +28,7 @@ pub struct Step {
 /// KKT residuals for the current iterate.
 ///
 /// ```text
-/// dual_feasibility      = c - A^T y - z_l - z_u
+/// dual_feasibility      = Q x + c - A^T y - z_l - z_u
 /// primal_feasibility    = b - A x
 /// cs_lower              = Z_l (x - l)
 /// cs_upper              = Z_u (x - u)
@@ -96,8 +96,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     fn compute_residual(&self, state: &SolverState) -> Residual {
         // Compute the residuals based on the current state
         Residual {
-            // Dual feasibility: c - A^T y - z_l - z_u
-            dual_feasibility: &self.qp.c
+            // Dual feasibility: Q x + c - A^T y - z_l - z_u
+            dual_feasibility: &self.qp.Q * &state.x + &self.qp.c
                 - self.qp.A.transpose() * &state.y
                 - &state.z_l
                 - &state.z_u,

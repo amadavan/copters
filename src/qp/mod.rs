@@ -192,3 +192,111 @@ impl<'a> QPSolverBuilder<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::OnceLock;
+
+    use faer::{
+        Col, ColRef,
+        sparse::{SparseColMat, Triplet},
+    };
+    use rstest::{fixture, rstest};
+    use rstest_reuse::{apply, template};
+
+    use crate::{
+        E, I, SolverHooks, SolverOptions, SolverState,
+        callback::ConvergenceOutput,
+        lp::LinearProgram,
+        terminators::{ConvergenceTerminator, Terminator},
+    };
+
+    #[template]
+    #[rstest]
+    pub fn solver_types(
+        #[values(
+            QPSolverType::MpcSimplicialCholesky,
+            QPSolverType::MpcSupernodalCholesky,
+            QPSolverType::MpcSimplicialLu
+        )]
+        solver_type: QPSolverType,
+    ) {
+    }
+
+    #[fixture]
+    #[allow(non_snake_case)]
+    fn build_simple_qp() -> &'static QuadraticProgram {
+        static QP: OnceLock<QuadraticProgram> = OnceLock::new();
+        QP.get_or_init(|| {
+            let Q = SparseColMat::try_new_from_triplets(
+                3,
+                3,
+                &[
+                    Triplet::new(0, 0, 2.0),
+                    Triplet::new(1, 1, 2.0),
+                    Triplet::new(2, 2, 2.0),
+                ],
+            )
+            .unwrap();
+            let c = ColRef::<E>::from_slice(&[0.0; 3]).to_owned();
+            let A = SparseColMat::try_new_from_triplets(
+                2,
+                3,
+                &[
+                    Triplet::new(0, 0, 1.0),
+                    Triplet::new(0, 1, 1.0),
+                    Triplet::new(1, 1, 1.0),
+                    Triplet::new(1, 2, 1.0),
+                ],
+            )
+            .unwrap();
+            let b = ColRef::<E>::from_slice(&[1.0; 2]).to_owned();
+            let l = Col::<E>::zeros(3);
+            let u = ColRef::<E>::from_slice(&[f64::INFINITY; 3]).to_owned();
+
+            QuadraticProgram::new(Q, c, A, b, l, u)
+        })
+    }
+
+    #[fixture]
+    fn build_options() -> &'static SolverOptions {
+        static OPTIONS: OnceLock<SolverOptions> = OnceLock::new();
+        OPTIONS.get_or_init(|| {
+            let mut options = SolverOptions::new();
+            let _ = options.set_option("max_iterations", 1000);
+            let _ = options.set_option("tolerance", 1e-8);
+            options
+        })
+    }
+
+    #[apply(solver_types)]
+    fn test_solver_instances(
+        #[values(build_simple_qp())] qp: &'static QuadraticProgram,
+        solver_type: QPSolverType,
+    ) {
+        let mut state = SolverState::new(
+            Col::ones(qp.get_n_vars()),
+            Col::ones(qp.get_n_cons()),
+            Col::ones(qp.get_n_vars()),
+            -Col::<E>::ones(qp.get_n_vars()),
+        );
+
+        let options = SolverOptions::new();
+
+        let mut properties = SolverHooks {
+            callback: Box::new(ConvergenceOutput::new()),
+            terminator: Box::new(ConvergenceTerminator::new(&options)),
+        };
+
+        let mut solver = QuadraticProgram::solver_builder(qp)
+            .with_solver(solver_type)
+            .with_options(options.clone())
+            .build()
+            .unwrap();
+        let status = solver.solve(&mut state, &mut properties);
+
+        assert_eq!(status.unwrap(), crate::Status::Optimal);
+    }
+}

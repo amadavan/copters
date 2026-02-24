@@ -49,6 +49,7 @@ pub struct StandardSystem<'a, Solver: LinearSolver> {
     qp: &'a QuadraticProgram,
     mat: SparseColMat<I, E>,
     solver: Solver,
+    diag_idx: Vec<I>, // Indices of the diagonal entries corresponding to dx in the matrix
 
     _a: PhantomData<&'a ()>,
 }
@@ -76,18 +77,34 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
 
         // Set each column (0...n_var)
         // TODO: ensure diagonals exist for dx and are set to -1, then only store the off-diagonal values of Q
+        let mut diag_idx = Vec::with_capacity(n_var);
         col_ptrs.push(0);
         for j in 0..n_var {
             let start = q_col_ptr[j];
             let end = q_col_ptr[j + 1];
             for k in start..end {
-                if j < q_col_ptr[k + 1] && q_row_idx[k] < j {
-                    // Diagonal entry for dx, set to -1 for now (will update in solve)
+                if j != q_row_idx[k] {
+                    row_indices.push(q_row_idx[k]); // Q part for dx
+                    values.push(-q_values[k]);
+                } else {
+                    diag_idx.push(row_indices.len()); // Diagonal entry for dx, set to -1 for now (will update in solve)
+                    row_indices.push(q_row_idx[k]); // Q part for dx
+                    values.push(-q_values[k]);
+                }
+
+                if k != end - 1 && j > q_row_idx[k] && j < q_row_idx[k + 1] {
+                    // Ensure that the diagonal entry exists even if Q is structurally singular
+                    diag_idx.push(row_indices.len());
                     row_indices.push(j);
                     values.push(-1.0);
                 }
-                row_indices.push(q_row_idx[k]); // Q part for dx
-                values.push(q_values[k]);
+            }
+
+            // Add diagonal if it hasn't been added yet (e.g. if there are no entries in this column of Q)
+            if diag_idx.len() < j + 1 {
+                diag_idx.push(row_indices.len());
+                row_indices.push(j);
+                values.push(-1.0);
             }
 
             let start = a_col_ptr[j];
@@ -136,6 +153,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
             qp,
             mat,
             solver,
+            diag_idx,
 
             _a: PhantomData,
         }
@@ -156,7 +174,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         // Update the matrix values based on the current iterate
         for j in 0..self.qp.get_n_vars() {
             let val = self.qp.Q.get(j, j).unwrap_or(&0.0);
-            values[col_ptrs[j]] = val - sys_diag[j] as E; // Identity part for dx
+            values[self.diag_idx[j]] = -val - sys_diag[j] as E; // Identity part for dx
         }
 
         self.solver.factorize(self.mat.as_ref())?;
