@@ -8,15 +8,12 @@ use faer::{
 use problemo::Problem;
 
 use crate::{
-    E, I, SolverState,
+    E, I, Residual, SolverState,
     linalg::{
         solver::LinearSolver,
         vector_ops::{cwise_inverse, cwise_multiply},
     },
-    qp::{
-        QuadraticProgram,
-        mpc::{Residual, Step},
-    },
+    qp::{QuadraticProgram, mpc::Step},
 };
 
 /// Formulation and factorization of the augmented KKT system used to
@@ -168,7 +165,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
 
         // Get matrix pointers
         let mat = self.mat.rb_mut();
-        let col_ptrs = mat.symbolic().col_ptr();
+        let _col_ptrs = mat.symbolic().col_ptr();
         let values = mat.val_mut();
 
         // Update the matrix values based on the current iterate

@@ -8,15 +8,12 @@ use faer::{
 use problemo::Problem;
 
 use crate::{
-    E, I, SolverState,
+    E, I, Residual, SolverState,
     linalg::{
         solver::LinearSolver,
         vector_ops::{cwise_inverse, cwise_multiply},
     },
-    lp::{
-        LinearProgram,
-        mpc::{Residual, Step},
-    },
+    lp::{LinearProgram, mpc::Step},
 };
 
 /// Formulation and factorization of the augmented KKT system used to

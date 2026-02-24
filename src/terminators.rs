@@ -13,9 +13,9 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use macros::{build_option_enum, explicit_options, use_option};
+use macros::{explicit_options, use_option};
 
-use crate::{E, Solver, SolverOptions, SolverState, Status};
+use crate::{E, SolverOptions, SolverState, Status};
 
 /// Criterion for deciding when the solver should stop.
 ///
@@ -127,8 +127,10 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility() <= self.options.tolerance
-            && state.get_dual_infeasibility() <= self.options.tolerance
+        if state.get_primal_infeasibility().norm_l2()
+            <= self.options.tolerance * state.x.nrows() as E
+            && state.get_dual_infeasibility().norm_l2()
+                <= self.options.tolerance * state.y.nrows() as E
         {
             Some(Status::Optimal)
         } else {
@@ -154,8 +156,9 @@ impl Terminator for SlowProgressTerminator {
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
         if let Some(prev) = &self.prev_state {
             let primal_diff =
-                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).abs();
-            let dual_diff = (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).abs();
+                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).norm_l2();
+            let dual_diff =
+                (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).norm_l2();
             if primal_diff <= self.options.slow_progress_tolerance
                 && dual_diff <= self.options.slow_progress_tolerance
             {
@@ -229,6 +232,7 @@ struct Builder {
     options: SolverOptions,
 }
 
+#[allow(unused)]
 impl Builder {
     pub fn new() -> Self {
         Self {

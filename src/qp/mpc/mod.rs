@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     qp::{
         QPSolver, QuadraticProgram,
@@ -23,39 +23,6 @@ pub struct Step {
     dy: Col<E>,
     dz_l: Col<E>,
     dz_u: Col<E>,
-}
-
-/// KKT residuals for the current iterate.
-///
-/// ```text
-/// dual_feasibility      = Q x + c - A^T y - z_l - z_u
-/// primal_feasibility    = b - A x
-/// cs_lower              = Z_l (x - l)
-/// cs_upper              = Z_u (x - u)
-/// ```
-pub struct Residual {
-    dual_feasibility: Col<E>,
-    primal_feasibility: Col<E>,
-    cs_lower: Col<E>,
-    cs_upper: Col<E>,
-}
-
-impl Residual {
-    pub fn get_dual_feasibility(&self) -> &Col<E> {
-        &self.dual_feasibility
-    }
-
-    pub fn get_primal_feasibility(&self) -> &Col<E> {
-        &self.primal_feasibility
-    }
-
-    pub fn get_complementarity_lower(&self) -> &Col<E> {
-        &self.cs_lower
-    }
-
-    pub fn get_complementarity_upper(&self) -> &Col<E> {
-        &self.cs_upper
-    }
 }
 
 /// Mehrotra predictor-corrector interior-point solver for linear programs.
@@ -92,23 +59,6 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
 {
     const DEFAULT_MAX_ITER: usize = 100;
 
-    /// Computes the KKT residuals for the current primal-dual iterate.
-    fn compute_residual(&self, state: &SolverState) -> Residual {
-        // Compute the residuals based on the current state
-        Residual {
-            // Dual feasibility: Q x + c - A^T y - z_l - z_u
-            dual_feasibility: &self.qp.Q * &state.x + &self.qp.c
-                - self.qp.A.transpose() * &state.y
-                - &state.z_l
-                - &state.z_u,
-            // Primal feasibility: b - A x
-            primal_feasibility: &self.qp.b - &self.qp.A * &state.x,
-            // Complimentary slackness
-            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.qp.l).as_ref()), // Placeholder
-            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.qp.u).as_ref()), // Placeholder
-        }
-    }
-
     fn get_max_iter(&self) -> usize {
         if self.options.max_iterations < 1 {
             Self::DEFAULT_MAX_ITER
@@ -128,7 +78,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.mu = Some(self.mu_updater.get(state));
         state.safety_factor = Some(E::from(1.));
 
-        let mut residual = self.compute_residual(state);
+        let mut residual = self.qp.compute_residual(state);
 
         // Affine Step
         let aff_step = self.system.solve(state, &residual)?;
@@ -163,12 +113,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.alpha_primal = alpha_corr_primal;
         state.alpha_dual = alpha_corr_dual;
 
-        let residual = self.compute_residual(state);
-        state.primal_infeasibility = residual.get_primal_feasibility().norm_l2();
-        state.dual_infeasibility = residual.get_dual_feasibility().norm_l2();
-        state.complimentary_slack_lower = residual.get_complementarity_lower().norm_l2();
-        state.complimentary_slack_upper = residual.get_complementarity_upper().norm_l2();
-
+        state.residual = self.qp.compute_residual(state);
         state.status = Status::InProgress;
 
         Ok(())

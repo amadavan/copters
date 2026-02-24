@@ -1,8 +1,9 @@
 use faer::{Col, sparse::SparseColMat};
 use problemo::Problem;
-use problemo::ProblemResult;
 use problemo::common::IntoCommonProblem;
 
+use crate::OptimizationProgram;
+use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::{
     E, I, Solver, SolverOptions,
@@ -84,6 +85,20 @@ impl QuadraticProgram {
 
     pub fn solver_builder<'a>(&'a self) -> QPSolverBuilder<'a> {
         QPSolverBuilder::new().with_lp(self)
+    }
+}
+
+impl OptimizationProgram for QuadraticProgram {
+    fn compute_residual(&self, state: &crate::SolverState) -> crate::Residual {
+        crate::Residual {
+            dual_feasibility: &self.Q * &state.x + &self.c
+                - self.A.transpose() * &state.y
+                - &state.z_l
+                - &state.z_u,
+            primal_feasibility: &self.b - self.A.as_ref() * &state.x,
+            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.l).as_ref()),
+            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.u).as_ref()),
+        }
     }
 }
 
@@ -207,9 +222,8 @@ mod tests {
     use rstest_reuse::{apply, template};
 
     use crate::{
-        E, I, SolverHooks, SolverOptions, SolverState,
+        E, SolverHooks, SolverOptions, SolverState,
         callback::ConvergenceOutput,
-        lp::LinearProgram,
         terminators::{ConvergenceTerminator, Terminator},
     };
 

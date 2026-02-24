@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{SolverOptions, SolverState};
+use crate::{E, SolverOptions, SolverState};
 
 /// Hook invoked once per solver iteration for logging, monitoring, or early stopping.
 pub trait Callback {
@@ -50,10 +50,10 @@ impl Callback for ConvergenceOutput {
             state.nit,
             state.alpha_primal,
             state.alpha_dual,
-            state.get_primal_infeasibility(),
-            state.get_dual_infeasibility(),
-            state.get_complimentary_slack_lower(),
-            state.get_complimentary_slack_upper(),
+            state.get_primal_infeasibility().norm_l2() / state.x.nrows() as E,
+            state.get_dual_infeasibility().norm_l2() / state.x.nrows() as E,
+            state.get_complimentary_slack_lower().norm_l2() / state.x.nrows() as E,
+            state.get_complimentary_slack_upper().norm_l2() / state.x.nrows() as E,
         );
         println!("{txt}");
     }
