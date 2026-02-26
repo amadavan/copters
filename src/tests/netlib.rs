@@ -184,7 +184,7 @@ fn qp(
     #[values(
         QPSolverType::MpcSimplicialCholesky,
         QPSolverType::MpcSupernodalCholesky,
-        QPSolverType::MpcSimplicialLu
+        // QPSolverType::MpcSimplicialLu
     )]
     solver_type: QPSolverType,
 ) {

@@ -85,8 +85,7 @@ mod tests {
     use crate::linalg::{
         cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
         lu::SimplicialSparseLu,
-        pardiso::MKLPardiso,
-        solver::{LinearSolver, SymmetricLinearSolver},
+        solver::{LinearSolver},
     };
     use faer::rand::SeedableRng;
     use faer::rand::rngs::StdRng;
@@ -96,18 +95,7 @@ mod tests {
 
     use super::*;
 
-    #[rstest]
-    fn test_mtx_symsolver(
-        #[values("Trefethen 20b")] mat_name: &str,
-        #[values(
-            SimplicialSparseCholesky::new(),
-            SupernodalSparseCholesky::new(),
-            SimplicialSparseLu::new(),
-            #[cfg(feature = "mkl")]
-            MKLPardiso::new()
-        )]
-        mut solver: impl LinearSolver,
-    ) {
+    fn test_solver(mat_name: &str, solver: &mut impl LinearSolver) {
         const N_COUNT: usize = 10;
         let mat = loaders::mtx::get_matrix_by_name::<I, E>(mat_name, true);
 
@@ -135,4 +123,33 @@ mod tests {
             assert!((&col - &mat * &result).norm_l2() < 1e-10); // Check if Ax ≈ b
         }
     }
+
+    #[rstest]
+    fn test_mtx_symsolver(
+        #[values("Trefethen 20b")] mat_name: &str,
+        #[values(
+            SimplicialSparseCholesky::new(),
+            SupernodalSparseCholesky::new(),
+            SimplicialSparseLu::new(),
+        )]
+        mut solver: impl LinearSolver,
+    ) {
+        test_solver(mat_name, &mut solver);
+    }
+
+    #[cfg(feature = "mkl")]
+    #[rstest]
+    fn test_mtx_mkl(#[values("Trefethen 20b")] mat_name: &str,) {
+        let solver = pardiso::MKLPardiso::new();
+        test_solver(mat_name, solver);
+    }
+
+    #[cfg(feature = "panua")]
+    #[rstest]
+    fn test_mtx_panua(#[values("Trefethen 20b")] mat_name: &str,) {
+        let solver = pardiso::PanuaSolver::new();
+        test_solver(mat_name, solver);
+    }
+
+
 }
