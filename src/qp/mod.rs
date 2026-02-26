@@ -91,11 +91,11 @@ impl QuadraticProgram {
 impl OptimizationProgram for QuadraticProgram {
     fn compute_residual(&self, state: &crate::SolverState) -> crate::Residual {
         crate::Residual {
-            dual_feasibility: &self.Q * &state.x + &self.c
-                - self.A.transpose() * &state.y
-                - &state.z_l
-                - &state.z_u,
-            primal_feasibility: &self.b - self.A.as_ref() * &state.x,
+            dual_feasibility: -&self.Q * &state.x - &self.c
+                + self.A.transpose() * &state.y
+                + &state.z_l
+                + &state.z_u,
+            primal_feasibility: self.A.as_ref() * &state.x - &self.b,
             cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.l).as_ref()),
             cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.u).as_ref()),
         }

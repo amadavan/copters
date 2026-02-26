@@ -77,38 +77,46 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         let mut diag_idx = Vec::with_capacity(n_var);
         col_ptrs.push(0);
         for j in 0..n_var {
-            let start = q_col_ptr[j];
-            let end = q_col_ptr[j + 1];
-            for k in start..end {
-                if j != q_row_idx[k] {
-                    row_indices.push(q_row_idx[k]); // Q part for dx
-                    values.push(-q_values[k]);
-                } else {
-                    diag_idx.push(row_indices.len()); // Diagonal entry for dx, set to -1 for now (will update in solve)
-                    row_indices.push(q_row_idx[k]); // Q part for dx
-                    values.push(-q_values[k]);
-                }
+            let mut has_diag = false;
+            if j < q_col_ptr.len() {
+                let start = q_col_ptr[j];
+                let end = q_col_ptr[j + 1];
+                for k in start..end {
+                    if k == j {
+                        // Add the diagonal contribution from the complementarity terms
+                        row_indices.push(q_row_idx[k]); // Hessian part for dx
+                        values.push(q_values[k] + 1.); // Identity part for dx
+                        diag_idx.push(row_indices.len() - 1); // Store index of diagonal for later updates
+                        has_diag = true;
+                    } else if k != end - 1 && j > q_row_idx[k] && j < q_row_idx[k + 1] {
+                        // If the diagonal was skipped make sure to add it
+                        row_indices.push(j); // Diagonal part for dx
+                        values.push(1.);
+                        diag_idx.push(row_indices.len() - 1); // Store index of diagonal for later updates
+                        has_diag = true;
 
-                if k != end - 1 && j > q_row_idx[k] && j < q_row_idx[k + 1] {
-                    // Ensure that the diagonal entry exists even if Q is structurally singular
-                    diag_idx.push(row_indices.len());
-                    row_indices.push(j);
-                    values.push(-1.0);
+                        row_indices.push(q_row_idx[k]); // Hessian part for dx
+                        values.push(q_values[k]);
+                    } else {
+                        // Just add it normally
+                        row_indices.push(q_row_idx[k]); // Hessian part for dx
+                        values.push(q_values[k]);
+                    }
                 }
             }
 
-            // Add diagonal if it hasn't been added yet (e.g. if there are no entries in this column of Q)
-            if diag_idx.len() < j + 1 {
-                diag_idx.push(row_indices.len());
-                row_indices.push(j);
-                values.push(-1.0);
+            // Add diagonal if it was not present in the Hessian (i.e. last element was before the diagonal)
+            if !has_diag {
+                row_indices.push(j); // Diagonal part for dx
+                values.push(1.);
+                diag_idx.push(row_indices.len() - 1); // Store index of diagonal for later updates
             }
 
             let start = a_col_ptr[j];
             let end = a_col_ptr[j + 1];
             for k in start..end {
                 row_indices.push(a_row_idx[k] + n_var); // A part for dx
-                values.push(a_values[k]);
+                values.push(-a_values[k]);
             }
 
             col_ptrs.push(row_indices.len());
@@ -126,7 +134,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
             let end = a_row_ptr[j + 1];
             for k in start..end {
                 row_indices.push(a_col_idx[k]); // A^T part for dy
-                values.push(a_values[k]);
+                values.push(-a_values[k]);
             }
 
             col_ptrs.push(row_indices.len());
@@ -171,7 +179,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         // Update the matrix values based on the current iterate
         for j in 0..self.qp.get_n_vars() {
             let val = self.qp.Q.get(j, j).unwrap_or(&0.0);
-            values[self.diag_idx[j]] = -val - sys_diag[j] as E; // Identity part for dx
+            values[self.diag_idx[j]] = val + sys_diag[j] as E; // Identity part for dx
         }
 
         self.solver.factorize(self.mat.as_ref())?;
@@ -191,9 +199,9 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for StandardSystem<'a
         let (mut rhs_dual, mut rhs_primal) = rhs.split_at_row_mut(n_var);
         rhs_dual.copy_from(
             residual.get_dual_feasibility()
-                - cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
-                - cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
-                - sigma * mu * (&xl_inv + &xu_inv),
+                + cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
+                + cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
+                + sigma * mu * (&xl_inv + &xu_inv),
         );
         rhs_primal.copy_from(&residual.get_primal_feasibility().as_ref());
 
