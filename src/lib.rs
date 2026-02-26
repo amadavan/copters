@@ -1,4 +1,5 @@
 #![feature(const_option_ops)]
+#![feature(stmt_expr_attributes)]
 
 use std::any::Any;
 use std::ops::Div;

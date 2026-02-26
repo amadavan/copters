@@ -9,6 +9,7 @@
 //!
 //! ## Example Usage
 //! ```
+//! use crate::E;
 //! use faer::sparse::{SparseColMat, Triplet};
 //! use copters::linalg::cholesky::SimplicialSparseCholesky;
 //! use copters::linalg::solver::Solver;
@@ -30,7 +31,7 @@
 //! let mut solver = SimplicialSparseCholesky::new();
 //! solver.analyze(mat.as_ref()).unwrap();
 //! solver.factorize(mat.as_ref()).unwrap();
-//! let b = faer::Mat::from_fn(n, 1, |i, _| i as f64);
+//! let b = faer::Mat::from_fn(n, 1, |i, _| i as E);
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
@@ -61,7 +62,7 @@ pub struct SimplicialSparseCholesky {
     /// Symbolic analysis data for the Cholesky factorization (set by `analyze`).
     symbolic: Option<SymbolicSimplicialCholesky<I>>,
     /// Numeric factorization values (set by `factorize`).
-    L_values: Vec<f64>,
+    L_values: Vec<E>,
     /// Permutation used for fill-reducing reordering of the matrix (set by `analyze`).
     perm: Option<Perm<I>>,
     /// LDLT factorization reference (set by `factorize`).
@@ -100,7 +101,7 @@ impl Solver for SimplicialSparseCholesky {
             perm.resize(dim, 0usize);
             perm_inv.resize(dim, 0usize);
 
-            let mut mem = MemBuffer::try_new(amd::order_scratch::<usize>(dim, nnz))
+            let mut mem = MemBuffer::try_new(amd::order_scratch::<I>(dim, nnz))
                 .via(LinearSolverError::MemoryAllocation)?;
             amd::order(
                 &mut perm,
@@ -124,8 +125,8 @@ impl Solver for SimplicialSparseCholesky {
         // symbolic analysis
         self.symbolic = Some({
             let mut mem = MemBuffer::try_new(StackReq::any_of(&[
-                simplicial::prefactorize_symbolic_cholesky_scratch::<usize>(dim, nnz),
-                simplicial::factorize_simplicial_symbolic_cholesky_scratch::<usize>(dim),
+                simplicial::prefactorize_symbolic_cholesky_scratch::<I>(dim, nnz),
+                simplicial::factorize_simplicial_symbolic_cholesky_scratch::<I>(dim),
             ]))
             .via(LinearSolverError::MemoryAllocation)?;
             let stack = MemStack::new(&mut mem);
@@ -182,15 +183,15 @@ impl Solver for SimplicialSparseCholesky {
 
         // numerical factorization
         let mut mem = MemBuffer::try_new(StackReq::all_of(&[
-            simplicial::factorize_simplicial_numeric_ldlt_scratch::<usize, f64>(dim),
-            // faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
-            // symbolic.solve_in_place_scratch::<f64>(dim),
+            simplicial::factorize_simplicial_numeric_ldlt_scratch::<I, E>(dim),
+            // faer::perm::permute_rows_in_place_scratch::<I, E>(dim, 1),
+            // symbolic.solve_in_place_scratch::<E>(dim),
         ]))
         .via(LinearSolverError::MemoryAllocation)?;
 
         let stack = MemStack::new(&mut mem);
 
-        simplicial::factorize_simplicial_numeric_ldlt::<usize, f64>(
+        simplicial::factorize_simplicial_numeric_ldlt::<I, E>(
             &mut self.L_values,
             mat_upper.rb(),
             LdltRegularization::default(),
@@ -204,9 +205,9 @@ impl Solver for SimplicialSparseCholesky {
         // live as long as self.
         self.ldlt = Some(unsafe {
             std::mem::transmute::<
-                simplicial::SimplicialLdltRef<'_, usize, f64>,
-                simplicial::SimplicialLdltRef<'static, usize, f64>,
-            >(simplicial::SimplicialLdltRef::<'_, usize, f64>::new(
+                simplicial::SimplicialLdltRef<'_, I, E>,
+                simplicial::SimplicialLdltRef<'static, I, E>,
+            >(simplicial::SimplicialLdltRef::<'_, I, E>::new(
                 symbolic,
                 &self.L_values,
             ))
@@ -216,16 +217,9 @@ impl Solver for SimplicialSparseCholesky {
         Ok(())
     }
 
-    /// Refactorizes the matrix, typically used when the matrix structure remains but values change.
-    /// Returns `Ok(())` on success, or an error message on failure.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
-        // Implementation of refactorization
-        self.factorize(mat)
-    }
-
     /// Solves the linear system in place for the given right-hand side vector `b`.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+    fn solve_in_place(&mut self, sol: &mut MatMut<E>) -> Result<(), Problem> {
         let symbolic = self
             .symbolic
             .as_ref()
@@ -236,9 +230,9 @@ impl Solver for SimplicialSparseCholesky {
         let dim = symbolic.ncols();
 
         let mut mem = MemBuffer::try_new(StackReq::all_of(&[
-            // simplicial::factorize_simplicial_numeric_ldlt_scratch::<usize, f64>(dim),
-            faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
-            symbolic.solve_in_place_scratch::<f64>(dim),
+            // simplicial::factorize_simplicial_numeric_ldlt_scratch::<I, E>(dim),
+            faer::perm::permute_rows_in_place_scratch::<I, E>(dim, 1),
+            symbolic.solve_in_place_scratch::<E>(dim),
         ]))
         .via(LinearSolverError::MemoryAllocation)?;
         let stack = MemStack::new(&mut mem);
@@ -248,13 +242,6 @@ impl Solver for SimplicialSparseCholesky {
         faer::perm::permute_rows_in_place(sol.rb_mut(), perm.as_ref().inverse(), stack);
 
         Ok(())
-    }
-
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
-        let mut sol = Mat::zeros(b.nrows(), b.ncols());
-        sol.copy_from(b);
-        self.solve_in_place(&mut sol.as_mut())?;
-        Ok(sol)
     }
 }
 
@@ -295,7 +282,7 @@ pub struct SupernodalSparseCholesky {
     /// Symbolic analysis data for the Cholesky factorization (set by `analyze`).
     symbolic: Option<SymbolicSupernodalCholesky<I>>,
     /// Numeric factorization values (set by `factorize`).
-    L_values: Vec<f64>,
+    L_values: Vec<E>,
     /// Permutation used for fill-reducing reordering of the matrix (set by `analyze`).
     perm: Option<Perm<I>>,
     /// LDLT factorization reference (set by `factorize`).
@@ -334,7 +321,7 @@ impl Solver for SupernodalSparseCholesky {
             perm.resize(dim, 0usize);
             perm_inv.resize(dim, 0usize);
 
-            let mut mem = MemBuffer::try_new(amd::order_scratch::<usize>(dim, nnz))
+            let mut mem = MemBuffer::try_new(amd::order_scratch::<I>(dim, nnz))
                 .via(LinearSolverError::MemoryAllocation)?;
             amd::order(
                 &mut perm,
@@ -358,8 +345,8 @@ impl Solver for SupernodalSparseCholesky {
         // symbolic analysis
         self.symbolic = Some({
             let mut mem = MemBuffer::try_new(StackReq::any_of(&[
-                simplicial::prefactorize_symbolic_cholesky_scratch::<usize>(dim, nnz),
-                supernodal::factorize_supernodal_symbolic_cholesky_scratch::<usize>(dim),
+                simplicial::prefactorize_symbolic_cholesky_scratch::<I>(dim, nnz),
+                supernodal::factorize_supernodal_symbolic_cholesky_scratch::<I>(dim),
             ]))
             .via(LinearSolverError::MemoryAllocation)?;
             let stack = MemStack::new(&mut mem);
@@ -417,19 +404,19 @@ impl Solver for SupernodalSparseCholesky {
 
         // numerical factorization
         let mut mem = MemBuffer::try_new(StackReq::all_of(&[
-            supernodal::factorize_supernodal_numeric_ldlt_scratch::<usize, f64>(
+            supernodal::factorize_supernodal_numeric_ldlt_scratch::<I, E>(
                 symbolic,
                 faer::Par::Seq,
                 Default::default(),
             ),
-            // faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
-            // symbolic.solve_in_place_scratch::<f64>(dim, faer::Par::Seq),
+            // faer::perm::permute_rows_in_place_scratch::<I, E>(dim, 1),
+            // symbolic.solve_in_place_scratch::<E>(dim, faer::Par::Seq),
         ]))
         .via(LinearSolverError::MemoryAllocation)?;
 
         let stack = MemStack::new(&mut mem);
 
-        supernodal::factorize_supernodal_numeric_ldlt::<usize, f64>(
+        supernodal::factorize_supernodal_numeric_ldlt::<I, E>(
             &mut self.L_values,
             mat_lower.rb(),
             LdltRegularization::default(),
@@ -445,9 +432,9 @@ impl Solver for SupernodalSparseCholesky {
         // live as long as self.
         self.ldlt = Some(unsafe {
             std::mem::transmute::<
-                supernodal::SupernodalLdltRef<'_, usize, f64>,
-                supernodal::SupernodalLdltRef<'static, usize, f64>,
-            >(supernodal::SupernodalLdltRef::<'_, usize, f64>::new(
+                supernodal::SupernodalLdltRef<'_, I, E>,
+                supernodal::SupernodalLdltRef<'static, I, E>,
+            >(supernodal::SupernodalLdltRef::<'_, I, E>::new(
                 symbolic,
                 &self.L_values,
             ))
@@ -466,7 +453,7 @@ impl Solver for SupernodalSparseCholesky {
 
     /// Solves the linear system in place for the given right-hand side vector `b`.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+    fn solve_in_place(&mut self, sol: &mut MatMut<E>) -> Result<(), Problem> {
         let symbolic = self
             .symbolic
             .as_ref()
@@ -477,13 +464,13 @@ impl Solver for SupernodalSparseCholesky {
         let dim = symbolic.ncols();
 
         let mut mem = MemBuffer::try_new(StackReq::all_of(&[
-            // supernodal::factorize_supernodal_numeric_ldlt_scratch::<usize, f64>(
+            // supernodal::factorize_supernodal_numeric_ldlt_scratch::<I, E>(
             //     symbolic,
             //     faer::Par::Seq,
             //     Default::default(),
             // ),
-            faer::perm::permute_rows_in_place_scratch::<usize, f64>(dim, 1),
-            symbolic.solve_in_place_scratch::<f64>(dim, faer::Par::Seq),
+            faer::perm::permute_rows_in_place_scratch::<I, E>(dim, 1),
+            symbolic.solve_in_place_scratch::<E>(dim, faer::Par::Seq),
         ]))
         .via(LinearSolverError::MemoryAllocation)?;
         let stack = MemStack::new(&mut mem);
@@ -493,13 +480,6 @@ impl Solver for SupernodalSparseCholesky {
         faer::perm::permute_rows_in_place(sol.rb_mut(), perm.as_ref().inverse(), stack);
 
         Ok(())
-    }
-
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
-        let mut sol = Mat::zeros(b.nrows(), b.ncols());
-        sol.copy_from(b);
-        self.solve_in_place(&mut sol.as_mut())?;
-        Ok(sol)
     }
 }
 
@@ -554,10 +534,8 @@ fn get_mat_lower(
         .via(LinearSolverError::MemoryReservation)?;
     mat_values.resize(nnz, 0.0f64);
 
-    let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<usize>(
-        dim,
-    ))
-    .via(LinearSolverError::MemoryAllocation)?;
+    let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<I>(dim))
+        .via(LinearSolverError::MemoryAllocation)?;
     faer::sparse::utils::permute_self_adjoint_to_unsorted(
         &mut mat_values,
         &mut mat_col_ptrs,
@@ -601,10 +579,8 @@ fn get_mat_upper(
         .via(LinearSolverError::MemoryReservation)?;
     mat_values.resize(nnz, 0.0f64);
 
-    let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<usize>(
-        dim,
-    ))
-    .via(LinearSolverError::MemoryAllocation)?;
+    let mut mem = MemBuffer::try_new(faer::sparse::utils::permute_self_adjoint_scratch::<I>(dim))
+        .via(LinearSolverError::MemoryAllocation)?;
     faer::sparse::utils::permute_self_adjoint_to_unsorted(
         &mut mat_values,
         &mut mat_col_ptrs,
@@ -639,7 +615,7 @@ mod tests {
         SupernodalCholesky,
     }
 
-    fn test_symmetric_solver(mat: SparseColMat<I, E>, solver_type: SolverType, n_count: usize) {
+    fn test_symmetric_solver(mat: SparseColMat<I, E>, solver_type: SolverType, n_count: I) {
         let mut solver: Box<dyn SymmetricLinearSolver> = match solver_type {
             SolverType::SimplicialCholesky => Box::new(SimplicialSparseCholesky::new()),
             SolverType::SupernodalCholesky => Box::new(SupernodalSparseCholesky::new()),

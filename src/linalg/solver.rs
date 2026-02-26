@@ -52,15 +52,23 @@ pub trait Solver {
 
     /// Refactorizes the matrix, typically used when the matrix structure remains but values change.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem>;
+    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
+        // Default implementation simply calls factorize, but can be overridden for efficiency.
+        self.factorize(mat)
+    }
 
     /// Solves the linear system in place for the given right-hand side vector `b`.
     /// Returns `Ok(())` on success, or an error message on failure.
-    fn solve_in_place(&self, b: &mut MatMut<E>) -> Result<(), Problem>;
+    fn solve_in_place(&mut self, b: &mut MatMut<E>) -> Result<(), Problem>;
 
     /// Solves the linear system for the given right-hand side vector `b` and returns the solution
     /// matrix. Returns the solution matrix on success, or an error message on failure.
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem>;
+    fn solve(&mut self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
+        let mut sol = Mat::zeros(b.nrows(), b.ncols());
+        sol.copy_from(b);
+        self.solve_in_place(&mut sol.as_mut())?;
+        Ok(sol)
+    }
 }
 
 pub trait LinearSolver: Solver {}
@@ -77,6 +85,7 @@ mod tests {
     use crate::linalg::{
         cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
         lu::SimplicialSparseLu,
+        pardiso::MKLPardiso,
         solver::{LinearSolver, SymmetricLinearSolver},
     };
     use faer::rand::SeedableRng;
@@ -93,7 +102,9 @@ mod tests {
         #[values(
             SimplicialSparseCholesky::new(),
             SupernodalSparseCholesky::new(),
-            SimplicialSparseLu::new()
+            SimplicialSparseLu::new(),
+            #[cfg(feature = "mkl")]
+            MKLPardiso::new()
         )]
         mut solver: impl LinearSolver,
     ) {

@@ -169,13 +169,8 @@ impl Solver for SimplicialSparseLu {
         Ok(())
     }
 
-    /// Refactorizes the matrix.
-    fn refactorize(&mut self, mat: SparseColMatRef<I, E>) -> Result<(), Problem> {
-        self.factorize(mat)
-    }
-
     /// Solves the linear system in place for the given right-hand side vector `b`.
-    fn solve_in_place(&self, sol: &mut MatMut<E>) -> Result<(), Problem> {
+    fn solve_in_place(&mut self, sol: &mut MatMut<E>) -> Result<(), Problem> {
         let lu = self.lu.as_ref().ok_or(LinearSolverError::Uninitialized)?;
         let row_perm = self
             .row_perm
@@ -207,13 +202,6 @@ impl Solver for SimplicialSparseLu {
         );
 
         Ok(())
-    }
-
-    fn solve(&self, b: MatRef<E>) -> Result<Mat<E>, Problem> {
-        let mut sol = Mat::zeros(b.nrows(), b.ncols());
-        sol.copy_from(b);
-        self.solve_in_place(&mut sol.as_mut())?;
-        Ok(sol)
     }
 }
 

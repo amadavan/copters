@@ -19,12 +19,19 @@ problemo = "0.0.11"
 derive_more = { version = "2.1.1", features = ["display", "error"] }
 sif-rs = "0.9.2"
 enum_dispatch = "0.3.13"
+pardiso-wrapper = { version = "0.1.2", optional = true }
 
 [dev-dependencies]
 divan = "0.1.21"
 rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 loaders = { path = "loaders" }
+
+[features]
+default = []
+pardiso = ["dep:pardiso-wrapper"]
+panua = ["pardiso", "pardiso-wrapper/panua"]
+mkl = ["pardiso", "pardiso-wrapper/mkl"]
 
 # For testing ctrl+c interrupt events
 [target.'cfg(unix)'.dev-dependencies]
