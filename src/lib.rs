@@ -3,13 +3,16 @@
 use std::any::Any;
 use std::ops::Div;
 
-use dyn_clone::DynClone;
+use derive_more::PartialEq;
+use dyn_clone::{DynClone, clone_box};
 use faer::sparse::SparseColMat;
 use faer::traits::ComplexField;
 use faer::traits::num_traits::{Float, PrimInt};
 use faer::{Col, Index};
 use macros::build_options;
 use problemo::Problem;
+
+use crate::callback::Callback;
 
 pub trait ElementType: ComplexField + Float + Div<Output = Self> + PrimInt {}
 impl<T> ElementType for T where T: ComplexField + Float + Div<Output = T> + PrimInt {}
@@ -89,7 +92,7 @@ pub trait Solver {
     fn solve(
         &mut self,
         state: &mut SolverState,
-        properties: &mut SolverHooks,
+        hooks: &mut SolverHooks,
     ) -> Result<Status, Problem>;
 }
 
@@ -196,7 +199,66 @@ impl SolverState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrimalDualVariables {
+    x: Col<E>,
+    y: Col<E>,
+    z_l: Col<E>,
+    z_u: Col<E>,
+}
+
+impl PrimalDualVariables {
+    pub fn new(x: Col<E>, y: Col<E>, z_l: Col<E>, z_u: Col<E>) -> Self {
+        Self { x, y, z_l, z_u }
+    }
+
+    pub fn new_empty(n: usize, m: usize) -> Self {
+        Self {
+            x: Col::<E>::zeros(n),
+            y: Col::<E>::zeros(m),
+            z_l: Col::<E>::zeros(n),
+            z_u: Col::<E>::zeros(n),
+        }
+    }
+
+    pub fn get_primal(&self) -> &Col<E> {
+        &self.x
+    }
+
+    pub fn set_primal(&mut self, x: Col<E>) {
+        self.x = x;
+    }
+
+    pub fn get_dual(&self) -> &Col<E> {
+        &self.y
+    }
+
+    pub fn set_dual(&mut self, y: Col<E>) {
+        self.y = y;
+    }
+
+    pub fn get_reduced_cost(&self) -> Col<E> {
+        &self.z_l - &self.z_u
+    }
+
+    pub fn get_dual_lower(&self) -> &Col<E> {
+        &self.z_l
+    }
+
+    pub fn set_dual_lower(&mut self, z_l: Col<E>) {
+        self.z_l = z_l;
+    }
+
+    pub fn get_dual_upper(&self) -> &Col<E> {
+        &self.z_u
+    }
+
+    pub fn set_dual_upper(&mut self, z_u: Col<E>) {
+        self.z_u = z_u;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Residual {
     /// Dual feasibility residual: `grad_f(x) - grad_g(x)^T y - z_l - z_u`
     dual_feasibility: Col<E>,
@@ -227,8 +289,17 @@ impl Residual {
 }
 
 pub struct SolverHooks {
-    callback: Box<dyn crate::callback::Callback>,
+    callback: Box<dyn Callback>,
     terminator: Box<dyn crate::terminators::Terminator>,
+}
+
+impl Clone for SolverHooks {
+    fn clone(&self) -> Self {
+        Self {
+            callback: clone_box(&*self.callback),
+            terminator: clone_box(&*self.terminator),
+        }
+    }
 }
 
 build_options!(name = SolverOptions, registry_name = OPTION_REGISTRY);

@@ -561,7 +561,7 @@ pub fn build_option_enum(token: TokenStream) -> TokenStream {
     let expanded = quote! {
         use std::str::FromStr;
 
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Default)]
         #[doc = #doc_header]
         pub enum #enum_name {
             #[default]
