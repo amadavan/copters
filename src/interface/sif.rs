@@ -1,6 +1,9 @@
-use faer::{Col, sparse::{SparseColMat, Triplet}};
+use faer::{
+    Col,
+    sparse::{SparseColMat, Triplet},
+};
+use problemo::Problem;
 use sif_rs::SIF;
-use problemo::{Problem, common::IntoCommonProblem};
 
 use crate::{E, I, lp::LinearProgram, qp::QuadraticProgram};
 
@@ -14,13 +17,7 @@ impl TryFromSIF for LinearProgram {
 
     fn try_from_sif(sif: &SIF) -> Result<Self::Output, Problem> {
         let data = parse_sif(sif)?;
-        Ok(Self::new(
-            data.c,
-            data.A,
-            data.b,
-            data.l,
-            data.u,
-        ))
+        Ok(Self::new(data.c, data.A, data.b, data.l, data.u))
     }
 }
 
@@ -29,17 +26,12 @@ impl TryFromSIF for QuadraticProgram {
 
     fn try_from_sif(sif: &SIF) -> Result<Self::Output, Problem> {
         let data = parse_sif(sif)?;
-        
+
         #[allow(non_snake_case)]
-        let Q = data.Q.ok_or_else(|| "Quadratic term is required for a quadratic program".gloss())?;
-        Ok(Self::new(
-            Q,
-            data.c,
-            data.A,
-            data.b,
-            data.l,
-            data.u,
-        ))
+        let Q = data.Q.unwrap_or(
+            SparseColMat::try_new_from_triplets(data.c.nrows(), data.c.nrows(), &[]).unwrap(),
+        ); // Return an error if Q is not provided, since it's required for a QP
+        Ok(Self::new(Q, data.c, data.A, data.b, data.l, data.u))
     }
 }
 
@@ -56,17 +48,42 @@ struct SifData {
 fn parse_sif(sif: &SIF) -> Result<SifData, Problem> {
     // Map variable and constraint names to their respective internal indices
     // Use BTreeSet/BTreeMap for deterministic ordering of indices
-    let map_var_idx: std::collections::BTreeMap<_, _> = sif.get_cols().into_iter().map(|(var_name, _)| var_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().enumerate().map(|(i, var_name)| (var_name, i)).collect();
-    let map_con_idx: std::collections::BTreeMap<_, _> = sif.get_rows().into_iter().filter(|(_, rhs_type)| rhs_type != &&sif_rs::types::RowType::N).map(|(con_name, _)| con_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().enumerate().map(|(i, con_name)| (con_name, i)).collect();
+    let map_var_idx: std::collections::BTreeMap<_, _> = sif
+        .get_cols()
+        .into_iter()
+        .map(|(var_name, _)| var_name.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(i, var_name)| (var_name, i))
+        .collect();
+    let map_con_idx: std::collections::BTreeMap<_, _> = sif
+        .get_rows()
+        .into_iter()
+        .filter(|(_, rhs_type)| rhs_type != &&sif_rs::types::RowType::N)
+        .map(|(con_name, _)| con_name.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(i, con_name)| (con_name, i))
+        .collect();
 
     let (n_var, n_con) = (map_var_idx.len(), map_con_idx.len());
 
     // Get number of slack variables
-    let n_slack = sif.get_rows().iter().filter(|(_, rhs_type)| **rhs_type == sif_rs::types::RowType::L || **rhs_type == sif_rs::types::RowType::G).count();
+    let n_slack = sif
+        .get_rows()
+        .iter()
+        .filter(|(_, rhs_type)| {
+            **rhs_type == sif_rs::types::RowType::L || **rhs_type == sif_rs::types::RowType::G
+        })
+        .count();
 
     // Construct the objective function
     let mut c = Col::zeros(n_var + n_slack);
-    sif.get_entries().iter().filter(|((con, _var), _)| 
+    sif.get_entries()
+        .iter()
+        .filter(|((con, _var), _)|
             // Filter out non-objective function coefficients
             sif.get_rows().get(con) == Some(&&sif_rs::types::RowType::N))
         .for_each(|((_con, var), &val)| {
@@ -75,15 +92,23 @@ fn parse_sif(sif: &SIF) -> Result<SifData, Problem> {
         });
 
     // Construct the right-hand side vector
-    let b = sif.get_rhs().into_iter().filter(|(con, _val)| sif.get_rows().get(*con) != Some(&&sif_rs::types::RowType::N)).map(|(con, val)| {
-        let i = map_con_idx[con];
-        (i, val)
-    }).fold(Col::zeros(n_con), |mut b, (i, val)| {
-        b[i] = E::from(*val);
-        b
-    });
+    let b = sif
+        .get_rhs()
+        .into_iter()
+        .filter(|(con, _val)| sif.get_rows().get(*con) != Some(&&sif_rs::types::RowType::N))
+        .map(|(con, val)| {
+            let i = map_con_idx[con];
+            (i, val)
+        })
+        .fold(Col::zeros(n_con), |mut b, (i, val)| {
+            b[i] = E::from(*val);
+            b
+        });
 
-    let a_triplets = sif.get_entries().iter().filter(|((con, _var), val)| {
+    let a_triplets = sif
+        .get_entries()
+        .iter()
+        .filter(|((con, _var), val)| {
             // Filter out zero coefficients and objective function coefficients
             if **val == 0. {
                 return false;
@@ -94,15 +119,19 @@ fn parse_sif(sif: &SIF) -> Result<SifData, Problem> {
             }
 
             true
-        }).map(|(i, &val)| {
+        })
+        .map(|(i, &val)| {
             let (i, j) = (map_con_idx[&i.0], map_var_idx[&i.1]);
             Triplet::new(I::from(i), I::from(j), E::from(val))
-        }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
     // Construct bounds
     let mut l = Col::<E>::zeros(n_var + n_slack);
     let mut u = E::INFINITY * Col::<E>::ones(n_var + n_slack);
-    sif.get_bounds().into_iter().for_each(|(var_name, (bound_type, val))| {
+    sif.get_bounds()
+        .into_iter()
+        .for_each(|(var_name, (bound_type, val))| {
             let j = map_var_idx[var_name];
 
             match bound_type {
@@ -151,32 +180,42 @@ fn parse_sif(sif: &SIF) -> Result<SifData, Problem> {
         });
 
     // Add slack variable coefficients to the constraint matrix
-    let slack_triplets = map_con_idx.iter()
-        .map(| (con_name, &i)| (sif.get_rows()[con_name], i))
-        .filter(|(con_type, _)| *con_type == sif_rs::types::RowType::L || *con_type == sif_rs::types::RowType::G)
+    let slack_triplets = map_con_idx
+        .iter()
+        .map(|(con_name, &i)| (sif.get_rows()[con_name], i))
+        .filter(|(con_type, _)| {
+            *con_type == sif_rs::types::RowType::L || *con_type == sif_rs::types::RowType::G
+        })
         .enumerate()
-        .map(|(i, (con_type, j))| {
-            match con_type {
-                sif_rs::types::RowType::L => Triplet::new(I::from(j), I::from(n_var + i), E::from(1.)),
-                sif_rs::types::RowType::G => Triplet::new(I::from(j), I::from(n_var + i), E::from(-1.)),
-                _ => unreachable!(),
-            }
+        .map(|(i, (con_type, j))| match con_type {
+            sif_rs::types::RowType::L => Triplet::new(I::from(j), I::from(n_var + i), E::from(1.)),
+            sif_rs::types::RowType::G => Triplet::new(I::from(j), I::from(n_var + i), E::from(-1.)),
+            _ => unreachable!(),
         });
 
-    let a_triplets = a_triplets.into_iter().chain(slack_triplets).collect::<Vec<_>>();
+    let a_triplets = a_triplets
+        .into_iter()
+        .chain(slack_triplets)
+        .collect::<Vec<_>>();
 
     #[allow(non_snake_case)]
-    let A = SparseColMat::try_new_from_triplets(n_con, n_var + n_slack, a_triplets.as_slice()).unwrap();
+    let A =
+        SparseColMat::try_new_from_triplets(n_con, n_var + n_slack, a_triplets.as_slice()).unwrap();
 
     #[allow(non_snake_case)]
     let Q = {
-        let q_triplet = sif.get_quadratic().into_iter().map(|((var1, var2), coeff)| {
-            let j1 = map_var_idx[var1];
-            let j2 = map_var_idx[var2];
-            Triplet::new(I::from(j1), I::from(j2), E::from(*coeff))
-        }).collect::<Vec<_>>();
-        SparseColMat::try_new_from_triplets(n_var, n_var, &q_triplet)
-    }.unwrap();
+        let q_triplet = sif
+            .get_quadratic()
+            .into_iter()
+            .map(|((var1, var2), coeff)| {
+                let j1 = map_var_idx[var1];
+                let j2 = map_var_idx[var2];
+                Triplet::new(I::from(j1), I::from(j2), E::from(*coeff))
+            })
+            .collect::<Vec<_>>();
+        SparseColMat::try_new_from_triplets(n_var + n_slack, n_var + n_slack, &q_triplet)
+    }
+    .unwrap();
 
     Ok(SifData {
         c,
