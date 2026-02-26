@@ -20,6 +20,7 @@ use crate::{
     callback::ConvergenceOutput,
     interface::sif::TryFromSIF,
     lp::{LPSolverType, LinearProgram},
+    qp::{QPSolverType, QuadraticProgram},
     terminators::{ConvergenceTerminator, Terminator},
 };
 
@@ -120,6 +121,12 @@ pub fn netlib_cases(
                 // "woodw",
         )]
     case_name: &str,
+) {
+}
+
+#[apply(netlib_cases)]
+fn lp(
+    case_name: &str,
     #[values(
         LPSolverType::MpcSimplicialCholesky,
         LPSolverType::MpcSupernodalCholesky,
@@ -127,10 +134,6 @@ pub fn netlib_cases(
     )]
     solver_type: LPSolverType,
 ) {
-}
-
-#[apply(netlib_cases)]
-fn test_case(case_name: &str, solver_type: LPSolverType) {
     let lp =
         LinearProgram::try_from_sif(&loaders::sif::netlib::get_case(case_name).unwrap()).unwrap();
 
@@ -167,6 +170,60 @@ fn test_case(case_name: &str, solver_type: LPSolverType) {
     };
 
     let mut solver = LinearProgram::solver_builder(&lp)
+        .with_solver(solver_type)
+        .build()
+        .unwrap();
+    let status = solver.solve(&mut state, &mut properties);
+
+    assert_eq!(status.unwrap(), crate::Status::Optimal);
+}
+
+#[apply(netlib_cases)]
+fn qp(
+    case_name: &str,
+    #[values(
+        QPSolverType::MpcSimplicialCholesky,
+        QPSolverType::MpcSupernodalCholesky,
+        QPSolverType::MpcSimplicialLu
+    )]
+    solver_type: QPSolverType,
+) {
+    let qp = QuadraticProgram::try_from_sif(&loaders::sif::netlib::get_case(case_name).unwrap())
+        .unwrap();
+
+    let mut state = SolverState::new(
+        Col::ones(qp.get_n_vars()),
+        Col::ones(qp.get_n_cons()),
+        Col::ones(qp.get_n_vars()),
+        -Col::<E>::ones(qp.get_n_vars()),
+    );
+
+    // Ensure that x is strictly between bounds for the initial iterate
+    for (j, (l, u)) in qp
+        .get_lower_bounds()
+        .iter()
+        .zip(qp.get_upper_bounds().iter())
+        .enumerate()
+    {
+        if l.is_finite() && u.is_finite() {
+            state.x[j] = (l + u) / 2.;
+        } else if l.is_finite() && !u.is_finite() {
+            state.x[j] = l + 1.;
+        } else if !l.is_finite() && u.is_finite() {
+            state.x[j] = u - 1.;
+        } else {
+            state.x[j] = 0.;
+        }
+    }
+
+    let options = SolverOptions::new();
+
+    let mut properties = SolverHooks {
+        callback: Box::new(ConvergenceOutput::new()),
+        terminator: Box::new(ConvergenceTerminator::new(&options)),
+    };
+
+    let mut solver = QuadraticProgram::solver_builder(&qp)
         .with_solver(solver_type)
         .build()
         .unwrap();
