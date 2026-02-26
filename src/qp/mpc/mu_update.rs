@@ -48,8 +48,8 @@ impl<'a> MuUpdate<'a> for ConstantMuUpdate<'a> {
 ///
 /// Infinite bounds are ignored (treated as zero contribution).
 #[explicit_options(name = SolverOptions)]
-#[use_option(name = "mu_min", type_ = f64, default = "1e-7", description = "Minimum value for the barrier parameter mu")]
-#[use_option(name = "mu_max", type_ = f64, default = "1e7", description = "Maximum value for the barrier parameter mu")]
+#[use_option(name = "mu_min", type_ = E, description = "Minimum value for the barrier parameter mu")]
+#[use_option(name = "mu_max", type_ = E, description = "Maximum value for the barrier parameter mu")]
 pub struct AdaptiveMuUpdate<'a> {
     qp: &'a QuadraticProgram,
 }
