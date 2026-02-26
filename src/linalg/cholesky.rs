@@ -9,8 +9,8 @@
 //!
 //! ## Example Usage
 //! ```
-//! use crate::E;
 //! use faer::sparse::{SparseColMat, Triplet};
+//! use copters::E;
 //! use copters::linalg::cholesky::SimplicialSparseCholesky;
 //! use copters::linalg::solver::Solver;
 //!

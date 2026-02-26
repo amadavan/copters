@@ -8,6 +8,7 @@ use crate::nlp::NonlinearProgram;
 use crate::{
     E, I, Solver, SolverOptions,
     linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
+    linalg::lu::SimplicialSparseLu,
 };
 
 pub mod mpc;
