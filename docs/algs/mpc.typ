@@ -43,20 +43,33 @@ $
 $
 We ensure this condition by ensuring that $alpha_p$ is less than or equal to the minimum of the right-hand side over all $i$ where $Delta bold(x)_i < 0$. To provide some margin, we typically scale this value by a factor $tau$ in $(0, 1)$. A similar process can be used to identify the dual step size $alpha_d$.
 
-The system of equations in @eq.mpc.system can be reduced to variables in $Delta bold(x), Delta bold(y)$, by noting that $Delta underline(bold(z))$ and $Delta bold(overline(bold(z)))$ can be expressed in terms of $Delta bold(x)$. Specifically, we have:
+The system of equations can be reduced to variables in $Delta bold(x), Delta bold(y)$, by noting that $Delta underline(bold(z))$ and $Delta bold(overline(bold(z)))$ can be expressed in terms of $Delta bold(x)$. Specifically, we have:
 $
   Delta underline(bold(z)) &= (bold(X) - bold(L))^(-1) (sigma mu bold(e) - (bold(X) - bold(L)) underline(bold(Z)) bold(e) - underline(bold(Z)) Delta bold(x)), \
   &= (bold(X) - bold(L))^(-1) sigma mu bold(e) - underline(bold(z)) - (bold(X) - bold(L))^(-1) underline(bold(Z)) Delta bold(x), \
   Delta overline(bold(z)) &= (bold(X) - bold(U))^(-1) (sigma mu bold(e) - (bold(X) - bold(U)) overline(bold(Z)) bold(e) - overline(bold(Z)) Delta bold(x)), \
-  &= (bold(X) - bold(U))^(-1) sigma mu bold(e) - overline(bold(z)) - (bold(X) - bold(U))^(-1) overline(bold(Z)) Delta bold(x)).
+  &= (bold(X) - bold(U))^(-1) sigma mu bold(e) - overline(bold(z)) - (bold(X) - bold(U))^(-1) overline(bold(Z)) Delta bold(x).
 $ <eq.mpc.zdx>
-The system @eq.mpc.system can then be reduced to the following system in $Delta bold(x)$ and $Delta bold(y)$:
+The system can then be reduced to the following system in $Delta bold(x)$ and $Delta bold(y)$:
 $
   & bold(A) Delta bold(x) = bold(b) - bold(A) bold(x), \
   & -((bold(X) - bold(L))^(-1) underline(bold(Z)) + (bold(X) - bold(U))^(-1) overline(bold(Z))) Delta bold(x) + bold(A)^T Delta bold(y) \
   & #h(2em) = bold(c) - bold(A)^T bold(y) - underline(bold(z)) - overline(bold(z)) + underline(bold(z)) + overline(bold(z)) - sigma mu (bold(X) - bold(L))^(-1) bold(e) - sigma mu (bold(X) - bold(U))^(-1) bold(e), \
   & #h(2em) = bold(c) - bold(A)^T bold(y) - sigma mu ( (bold(X) - bold(L))^(-1) +(bold(X) - bold(U))^(-1) ) bold(e),
 $
-and $Delta underline(bold(z))$ and $Delta overline(bold(z))$ are as defined in @eq.mpc.zdx. Note that this formulation retains the sparsity of the original problem. This allows the usage of sparse linear system solvers, such as Cholesky factorization to efficiently solve the system of equations.
+and $Delta underline(bold(z))$ and $Delta overline(bold(z))$ are as defined in @eq.mpc.zdx. Note that this formulation retains the sparsity of the original problem. This allows the usage of sparse linear system solvers, such as Cholesky factorization to efficiently solve the system of equations. The solution of these equations
+
+The step that is taken fails to account for the nonlinearity arising from the complimentary slackness conditions. As such, a corrector step is introduced where the complimentary slackness equations are augmented as:
+$
+  & (bold(X) - bold(L)) Delta underline(bold(z)) + underline(bold(Z)) Delta bold(x) = sigma mu bold(e) - (bold(X) - bold(L)) underline(bold(Z)) bold(e) - Delta bold(X)^a Delta underline(bold(Z))^a bold(e) \
+  & (bold(X) - bold(U)) Delta overline(bold(z)) + overline(bold(Z)) Delta bold(x) = sigma mu bold(e) - (bold(X) - bold(U)) overline(bold(Z)) bold(e) - Delta bold(X)^a Delta overline(bold(Z))^a bold(e)
+$
+Then, the system can be reduced to
+$
+  & bold(A) Delta bold(x) = bold(b) - bold(A) bold(x), \
+  & -((bold(X) - bold(L))^(-1) underline(bold(Z)) + (bold(X) - bold(U))^(-1) overline(bold(Z))) Delta bold(x) + bold(A)^T Delta bold(y) \
+  & #h(2em) = bold(c) - bold(A)^T bold(y) - underline(bold(z)) - overline(bold(z)) + underline(bold(z)) + overline(bold(z)) - sigma mu (bold(X) - bold(L))^(-1) bold(e) - sigma mu (bold(X) - bold(U))^(-1) bold(e), \
+  & #h(2em) = bold(c) - bold(A)^T bold(y) - sigma mu ( (bold(X) - bold(L))^(-1) +(bold(X) - bold(U))^(-1) ) bold(e),
+$
 
 // === Implementing Mehrotra's Predictor-Corrector
