@@ -49,21 +49,33 @@ pub fn decompress_mps(emps_path: &str) -> Result<NamedTempFile, Problem> {
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
+    use std::{fs::OpenOptions, io::Write, path::PathBuf};
+
+    use crate::get_cache_dir;
+
     use super::*;
+
+    static URL: &str = "https://netlib.org/lp/data/";
+
+    fn get_internal_name(name: &str) -> String {
+        // name.replace(".", "_").to_lowercase()
+        name.to_lowercase()
+    }
 
     fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
         let cache_dir = get_cache_dir() + "/emps";
 
         std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
-        if !NETLIB_CASE_DATA.contains_key(name) {
-            return Err(format!("Unknown Netlib case: {}", name).gloss());
-        }
+        // if !NETLIB_CASE_DATA.contains_key(name) {
+        //     return Err(format!("Unknown Netlib case: {}", name).gloss());
+        // }
 
         // Download file if it does not exist
         let internal_name = get_internal_name(name);
         let cached_path = Path::new(&format!("{}/{}.emps", &cache_dir, internal_name)).to_owned();
-        if !Path::new(&format!("{}/{}.emps", &cache_dir, internal_name)).exists() {
+        if !cached_path.exists() {
             let url = format!("{}{}", URL, name);
             let response = reqwest::blocking::get(&url)
                 .map_err(|e| format!("Failed to download file: {}", e).gloss())?;
@@ -103,12 +115,13 @@ mod test {
         )]
         case_name: &str,
     ) {
-        let case_name = case_name.to_uppercase();
+        // let case_name = case_name.to_uppercase();
         let path = download_compressed(&case_name).expect("Failed to download compressed MPS file");
 
         // Convert name to internal name and get the data
         let emps_path = path.to_str().unwrap();
-        let mps_file = decompress_mps(&emps_path)
-            .map_err(|e| format!("Unable to decompress emps file: {}", e).gloss())?;
+        decompress_mps(&emps_path)
+            .ok()
+            .expect("Failed to decompress MPS file");
     }
 }

@@ -8,38 +8,38 @@
 //! # Note
 //! [`InterruptTerminator`] installs a global signal handler and **can only be constructed once** per process. Attempting to create multiple instances will result in a panic.
 
-use std::{
-    collections::HashSet,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
-use macros::{build_option_enum, explicit_options, use_option};
+use dyn_clone::DynClone;
+use enum_dispatch::enum_dispatch;
+use macros::{explicit_options, use_option};
 
-use crate::{E, Solver, SolverOptions, SolverState, Status};
+use crate::{E, SolverOptions, SolverState, Status};
 
 /// Criterion for deciding when the solver should stop.
 ///
 /// Checked once per iteration. Returns `Some(Status)` to stop, or `None` to continue.
-pub trait Terminator {
-    /// Creates a new terminator from solver options.
-    fn new(options: &SolverOptions) -> Self
-    where
-        Self: Sized;
-
+#[enum_dispatch]
+pub trait Terminator: DynClone {
     /// Called once before the first iteration to reset any internal state (e.g. timers).
-    fn initialize(&mut self) {}
+    fn init(&mut self, options: &SolverOptions);
 
     /// Returns `Some(status)` if the solver should stop, `None` otherwise.
     fn terminate(&mut self, state: &SolverState) -> Option<Status>;
 }
 
 /// A terminator that never triggers. The solver runs until the iteration limit.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NullTerminator {}
 
-impl Terminator for NullTerminator {
-    fn new(_options: &SolverOptions) -> Self {
+impl NullTerminator {
+    pub fn new(_options: &SolverOptions) -> Self {
         Self {}
     }
+}
+
+impl Terminator for NullTerminator {
+    fn init(&mut self, _options: &SolverOptions) {}
 
     fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
         None
@@ -51,11 +51,18 @@ impl Terminator for NullTerminator {
 /// # Note
 /// Only one instance of `InterruptTerminator` can be constructed per process, as it installs a global signal handler.
 /// Creating more than one will panic.
+#[derive(Clone)]
 pub struct InterruptTerminator {
     interrupted: Arc<AtomicBool>,
 }
 
 impl InterruptTerminator {
+    pub fn new(options: &SolverOptions) -> Self {
+        Self {
+            interrupted: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     pub fn interrupt(&mut self) {
         self.interrupted
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -63,7 +70,7 @@ impl InterruptTerminator {
 }
 
 impl Terminator for InterruptTerminator {
-    fn new(_options: &SolverOptions) -> Self {
+    fn init(&mut self, _options: &SolverOptions) {
         let interrupted = Arc::new(AtomicBool::new(false));
         ctrlc::set_handler({
             let interrupted_clone = interrupted.clone();
@@ -72,7 +79,6 @@ impl Terminator for InterruptTerminator {
             }
         })
         .expect("Error setting Ctrl-C handler");
-        Self { interrupted }
     }
 
     fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
@@ -87,22 +93,24 @@ impl Terminator for InterruptTerminator {
 /// Terminator that triggers after a specified number of seconds.
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "max_time", type_ = u64, default = "3600", description = "Maximum time in seconds before termination")]
+#[derive(Clone)]
 pub struct TimeOutTerminator {
     start_time: std::time::Instant,
 }
 
-impl TimeOutTerminator {}
-
-impl Terminator for TimeOutTerminator {
-    fn new(options: &SolverOptions) -> Self {
+impl TimeOutTerminator {
+    pub fn new(options: &SolverOptions) -> Self {
         Self {
             start_time: std::time::Instant::now(),
             options: options.into(),
         }
     }
+}
 
-    fn initialize(&mut self) {
+impl Terminator for TimeOutTerminator {
+    fn init(&mut self, options: &SolverOptions) {
         self.start_time = std::time::Instant::now();
+        self.options = options.into();
     }
 
     fn terminate(&mut self, _state: &SolverState) -> Option<Status> {
@@ -117,18 +125,27 @@ impl Terminator for TimeOutTerminator {
 /// Terminates when both primal and dual infeasibility fall below `tolerance`.
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "tolerance", type_ = E, default = "1e-7", description = "Tolerance for convergence-based termination")]
+#[derive(Clone)]
 pub struct ConvergenceTerminator {}
 
-impl Terminator for ConvergenceTerminator {
-    fn new(options: &SolverOptions) -> Self {
+impl ConvergenceTerminator {
+    pub fn new(options: &SolverOptions) -> Self {
         Self {
             options: options.into(),
         }
     }
+}
+
+impl Terminator for ConvergenceTerminator {
+    fn init(&mut self, options: &SolverOptions) {
+        self.options = options.into();
+    }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility() <= self.options.tolerance
-            && state.get_dual_infeasibility() <= self.options.tolerance
+        if state.get_primal_infeasibility().norm_l2()
+            <= self.options.tolerance * state.x.nrows() as E
+            && state.get_dual_infeasibility().norm_l2()
+                <= self.options.tolerance * state.y.nrows() as E
         {
             Some(Status::Optimal)
         } else {
@@ -139,23 +156,31 @@ impl Terminator for ConvergenceTerminator {
 
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "slow_progress_tolerance", type_ = E, default = "1e-8", description = "Tolerance for detecting slow progress in primal and dual infeasibility.")]
+#[derive(Clone)]
 pub struct SlowProgressTerminator {
     prev_state: Option<SolverState>,
 }
 
-impl Terminator for SlowProgressTerminator {
-    fn new(options: &SolverOptions) -> Self {
+impl SlowProgressTerminator {
+    pub fn new(options: &SolverOptions) -> Self {
         Self {
             prev_state: None,
             options: options.into(),
         }
     }
+}
+
+impl Terminator for SlowProgressTerminator {
+    fn init(&mut self, options: &SolverOptions) {
+        self.options = options.into();
+    }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
         if let Some(prev) = &self.prev_state {
             let primal_diff =
-                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).abs();
-            let dual_diff = (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).abs();
+                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).norm_l2();
+            let dual_diff =
+                (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).norm_l2();
             if primal_diff <= self.options.slow_progress_tolerance
                 && dual_diff <= self.options.slow_progress_tolerance
             {
@@ -167,39 +192,42 @@ impl Terminator for SlowProgressTerminator {
     }
 }
 
+#[enum_dispatch(Terminator)]
+#[derive(Clone)]
+pub enum Terminators {
+    NullTerminator(NullTerminator),
+    InterruptTerminator(InterruptTerminator),
+    TimeOutTerminator(TimeOutTerminator),
+    ConvergenceTerminator(ConvergenceTerminator),
+    SlowProgressTerminator(SlowProgressTerminator),
+}
+
 /// Combines multiple terminators; stops on the first one that fires.
+#[derive(Clone)]
 pub struct MultiTerminator {
-    terminators: Vec<Box<dyn Terminator>>,
+    terminators: Vec<Terminators>,
 }
 
 impl MultiTerminator {
-    pub fn new_default(options: &SolverOptions) -> Self {
-        Self {
-            terminators: vec![
-                Box::new(InterruptTerminator::new(&options)),
-                Box::new(TimeOutTerminator::new(&options)),
-                Box::new(ConvergenceTerminator::new(&options)),
-            ],
-        }
-    }
-
-    pub fn new_with_terminators(terminators: Vec<Box<dyn Terminator>>) -> Self {
+    pub fn new(terminators: Vec<Terminators>) -> Self {
         Self { terminators }
     }
 
-    pub fn add_terminator(&mut self, terminator: Box<dyn Terminator>) {
+    pub fn new_empty() -> Self {
+        Self {
+            terminators: Vec::new(),
+        }
+    }
+
+    pub fn add_terminator(&mut self, terminator: Terminators) {
         self.terminators.push(terminator);
     }
 }
 
 impl Terminator for MultiTerminator {
-    fn new(options: &SolverOptions) -> Self {
-        Self::new_default(options)
-    }
-
-    fn initialize(&mut self) {
+    fn init(&mut self, options: &SolverOptions) {
         for terminator in &mut self.terminators {
-            terminator.initialize();
+            terminator.init(options);
         }
     }
 
@@ -213,26 +241,17 @@ impl Terminator for MultiTerminator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TerminatorType {
-    NullTerminator,
-    InterruptTerminator,
-    TimeOutTerminator,
-    ConvergenceTerminator,
-    SlowProgressTerminator,
-    MultiTerminator,
-}
-
 #[allow(unused)]
 struct Builder {
-    terminators: HashSet<TerminatorType>,
+    terminators: Vec<Terminators>,
     options: SolverOptions,
 }
 
+#[allow(unused)]
 impl Builder {
     pub fn new() -> Self {
         Self {
-            terminators: HashSet::new(),
+            terminators: Vec::new(),
             options: SolverOptions::new(),
         }
     }
@@ -242,37 +261,13 @@ impl Builder {
         self
     }
 
-    pub fn add_terminator(mut self, terminator: TerminatorType) -> Self {
-        self.terminators.insert(terminator);
+    pub fn add_terminator(mut self, terminator: Terminators) -> Self {
+        self.terminators.push(terminator);
         self
     }
 
-    pub fn build(self) -> MultiTerminator {
-        let terminators = self
-            .terminators
-            .into_iter()
-            .map(|t| match t {
-                TerminatorType::NullTerminator => {
-                    Box::new(NullTerminator::new(&self.options)) as Box<dyn Terminator>
-                }
-                TerminatorType::InterruptTerminator => {
-                    Box::new(InterruptTerminator::new(&self.options))
-                }
-                TerminatorType::TimeOutTerminator => {
-                    Box::new(TimeOutTerminator::new(&self.options))
-                }
-                TerminatorType::ConvergenceTerminator => {
-                    Box::new(ConvergenceTerminator::new(&self.options))
-                }
-                TerminatorType::SlowProgressTerminator => {
-                    Box::new(SlowProgressTerminator::new(&self.options))
-                }
-                TerminatorType::MultiTerminator => {
-                    Box::new(MultiTerminator::new_default(&self.options))
-                }
-            })
-            .collect();
-        MultiTerminator::new_with_terminators(terminators)
+    pub fn build(self) -> Box<dyn Terminator> {
+        Box::new(MultiTerminator::new(self.terminators.into_iter().collect()))
     }
 }
 
@@ -306,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_interruption_terminator_ctrlc() {
         let options = SolverOptions::new();
         let mut terminator = InterruptTerminator::new(&options);

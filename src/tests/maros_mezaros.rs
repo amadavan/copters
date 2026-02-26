@@ -14,14 +14,15 @@ use crate::{
 #[rstest]
 pub fn maros_mezaros_cases(
     #[values(
+        //
             // "AUG2D",
-            // "AUG2DC",
-            // "AUG2DCQP",
-            // "AUG2DQP",
+            "AUG2DC",
+            // "AUG2DCQP", // Long
+            // "AUG2DQP",  // Long
             // "AUG3D",
-            // "AUG3DC",
-            // "AUG3DCQP",
-            // "AUG3DQP",
+            "AUG3DC",
+            "AUG3DCQP",
+            "AUG3DQP",
             // "BOYD1",
             // "BOYD2",
             // "CONT-050",
@@ -40,7 +41,7 @@ pub fn maros_mezaros_cases(
             // "CVXQP3_M",
             // "CVXQP3_S",
             // "DPKLO1",
-            // "DTOC3",
+            // "DTOC3", // Long
             // "DUAL1",
             // "DUAL2",
             // "DUAL3",
@@ -63,7 +64,7 @@ pub fn maros_mezaros_cases(
             // "HS53",
             // "HS76",
             // "HUES-MOD",
-            // "HUESTIS",
+            "HUESTIS",
             // "KSIP",
             // "LASER",
             // "LISWET1",
@@ -164,7 +165,7 @@ pub fn maros_mezaros_cases(
 }
 
 #[apply(maros_mezaros_cases)]
-fn test_case(case_name: &str, solver_type: QPSolverType) {
+fn qp(case_name: &str, solver_type: QPSolverType) {
     let qp =
         QuadraticProgram::try_from_sif(&loaders::sif::maros_mezaros::get_case(case_name).unwrap())
             .unwrap();

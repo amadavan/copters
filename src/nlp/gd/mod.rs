@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
 };
 
@@ -68,20 +68,7 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
         }
 
         // Update the state
-        state.primal_infeasibility = state
-            .g
-            .as_ref()
-            .unwrap()
-            .iter()
-            .fold(E::from(0.), |a, b| a + b.abs());
-        state.dual_infeasibility = state
-            .df
-            .as_ref()
-            .unwrap()
-            .iter()
-            .fold(E::from(0.), |a, b| a + b.abs());
-        state.complimentary_slack_lower = 0.;
-        state.complimentary_slack_upper = 0.;
+        state.residual = self.nlp.compute_residual(state);
 
         state.alpha_primal = step_size;
         state.alpha_dual = step_size;
@@ -173,8 +160,8 @@ mod tests {
         let mut state = SolverState::new(
             vec![0.0, 0.0].into_iter().collect(),
             vec![1.0].into_iter().collect(),
-            vec![0.0].into_iter().collect(),
-            vec![0.0].into_iter().collect(),
+            vec![0.0, 0.0].into_iter().collect(),
+            vec![0.0, 0.0].into_iter().collect(),
         );
 
         let options = SolverOptions::new();

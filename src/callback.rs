@@ -1,9 +1,13 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Debug};
 
-use crate::{SolverOptions, SolverState};
+use dyn_clone::DynClone;
+use enum_dispatch::enum_dispatch;
+
+use crate::{E, SolverOptions, SolverState};
 
 /// Hook invoked once per solver iteration for logging, monitoring, or early stopping.
-pub trait Callback {
+#[enum_dispatch]
+pub trait Callback: Debug + DynClone {
     fn init(&mut self, _state: &SolverState) {}
 
     /// Called at the end of each iteration with the current solver state.
@@ -13,6 +17,7 @@ pub trait Callback {
 }
 
 /// A callback that does nothing. Use when no per-iteration output is needed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NoOpCallback {}
 
 impl NoOpCallback {
@@ -23,6 +28,7 @@ impl NoOpCallback {
 
 impl Callback for NoOpCallback {}
 /// Prints primal and dual infeasibility to stdout each iteration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConvergenceOutput {}
 
 impl ConvergenceOutput {
@@ -50,10 +56,10 @@ impl Callback for ConvergenceOutput {
             state.nit,
             state.alpha_primal,
             state.alpha_dual,
-            state.get_primal_infeasibility(),
-            state.get_dual_infeasibility(),
-            state.get_complimentary_slack_lower(),
-            state.get_complimentary_slack_upper(),
+            state.get_primal_infeasibility().norm_l2() / state.x.nrows() as E,
+            state.get_dual_infeasibility().norm_l2() / state.x.nrows() as E,
+            state.get_complimentary_slack_lower().norm_l2() / state.x.nrows() as E,
+            state.get_complimentary_slack_upper().norm_l2() / state.x.nrows() as E,
         );
         println!("{txt}");
     }
@@ -63,43 +69,56 @@ impl Callback for ConvergenceOutput {
     }
 }
 
-pub struct MultiCallback {
-    callbacks: Vec<Box<dyn Callback>>,
+#[enum_dispatch(Callback)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Callbacks {
+    NoOp(NoOpCallback),
+    ConvergenceOutput(ConvergenceOutput),
+}
+
+#[derive(Debug, Clone)]
+struct MultiCallback {
+    callbacks: Vec<Callbacks>,
 }
 
 impl MultiCallback {
-    pub fn new(callbacks: Vec<Box<dyn Callback>>) -> Self {
+    pub fn new(callbacks: Vec<Callbacks>) -> Self {
         Self { callbacks }
+    }
+
+    pub fn new_empty() -> Self {
+        Self {
+            callbacks: Vec::new(),
+        }
+    }
+
+    pub fn add_callback(&mut self, callback: Callbacks) {
+        self.callbacks.push(callback);
     }
 }
 
 impl Callback for MultiCallback {
     fn init(&mut self, state: &SolverState) {
         for cb in &mut self.callbacks {
-            cb.init(state);
+            <Callbacks as Callback>::init(cb, state);
         }
     }
 
     fn call(&mut self, state: &SolverState) {
         for cb in &mut self.callbacks {
-            cb.call(state);
+            <Callbacks as Callback>::call(cb, state);
         }
     }
 
     fn finish(&mut self) {
         for cb in &mut self.callbacks {
-            cb.finish();
+            <Callbacks as Callback>::finish(cb);
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CallbackType {
-    ConvergenceOutput,
-}
-
 pub struct Builder {
-    callback: HashSet<CallbackType>,
+    callback: HashSet<Callbacks>,
     options: SolverOptions,
 }
 
@@ -116,22 +135,17 @@ impl Builder {
         self
     }
 
-    pub fn add_callback(mut self, callback: CallbackType) -> Self {
+    pub fn add_callback(mut self, callback: Callbacks) -> Self {
         self.callback.insert(callback);
         self
     }
 
     pub fn build(&self) -> Box<dyn Callback> {
-        let callbacks: Vec<Box<dyn Callback>> = self
-            .callback
-            .iter()
-            .map(|cb_type| match cb_type {
-                CallbackType::ConvergenceOutput => {
-                    Box::new(ConvergenceOutput::new()) as Box<dyn Callback>
-                }
-            })
-            .collect();
-
-        Box::new(MultiCallback::new(callbacks))
+        if self.callback.len() == 0 {
+            return Box::new(NoOpCallback::new());
+        } else if self.callback.len() == 1 {
+            return Box::new(self.callback.iter().next().unwrap().clone());
+        }
+        Box::new(MultiCallback::new(self.callback.iter().cloned().collect()))
     }
 }

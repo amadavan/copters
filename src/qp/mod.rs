@@ -1,8 +1,9 @@
 use faer::{Col, sparse::SparseColMat};
 use problemo::Problem;
-use problemo::ProblemResult;
 use problemo::common::IntoCommonProblem;
 
+use crate::OptimizationProgram;
+use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::{
     E, I, Solver, SolverOptions,
@@ -87,6 +88,20 @@ impl QuadraticProgram {
     }
 }
 
+impl OptimizationProgram for QuadraticProgram {
+    fn compute_residual(&self, state: &crate::SolverState) -> crate::Residual {
+        crate::Residual {
+            dual_feasibility: -&self.Q * &state.x - &self.c
+                + self.A.transpose() * &state.y
+                + &state.z_l
+                + &state.z_u,
+            primal_feasibility: self.A.as_ref() * &state.x - &self.b,
+            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.l).as_ref()),
+            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.u).as_ref()),
+        }
+    }
+}
+
 #[allow(non_snake_case, unused)]
 impl From<QuadraticProgram> for NonlinearProgram {
     fn from(qp: QuadraticProgram) -> Self {
@@ -126,6 +141,10 @@ pub enum QPSolverType {
     MpcSimplicialCholesky,
     MpcSupernodalCholesky,
     MpcSimplicialLu,
+    #[cfg(feature = "mkl")]
+    MpcMKL,
+    #[cfg(feature = "panua")]
+    MpcPanua,
 }
 
 pub struct QPSolverBuilder<'a> {
@@ -185,10 +204,130 @@ impl<'a> QPSolverBuilder<'a> {
             }
             QPSolverType::MpcSimplicialLu => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                 'a,
-                SimplicialSparseCholesky,
-                mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                SimplicialSparseLu,
+                mpc::augmented_system::StandardSystem<'a, SimplicialSparseLu>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp, &self.options))),
+            #[cfg(feature = "mkl")]
+            QPSolverType::MpcMKL => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::MKLPardiso,
+                mpc::augmented_system::StandardSystem<'a, crate::linalg::pardiso::MKLPardiso>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp, &self.options))),
+            #[cfg(feature = "panua")]
+            QPSolverType::MpcPanua => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::PanuaSolver,
+                mpc::augmented_system::StandardSystem<'a, crate::linalg::pardiso::PanuaSolver>,
                 mpc::mu_update::AdaptiveMuUpdate<'a>,
             >::new(lp, &self.options))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::OnceLock;
+
+    use faer::{
+        Col, ColRef,
+        sparse::{SparseColMat, Triplet},
+    };
+    use rstest::{fixture, rstest};
+    use rstest_reuse::{apply, template};
+
+    use crate::{
+        E, SolverHooks, SolverOptions, SolverState, callback::ConvergenceOutput,
+        terminators::ConvergenceTerminator,
+    };
+
+    #[template]
+    #[rstest]
+    pub fn solver_types(
+        #[values(
+            QPSolverType::MpcSimplicialCholesky,
+            QPSolverType::MpcSupernodalCholesky,
+            QPSolverType::MpcSimplicialLu
+        )]
+        solver_type: QPSolverType,
+    ) {
+    }
+
+    #[fixture]
+    #[allow(non_snake_case)]
+    fn build_simple_qp() -> &'static QuadraticProgram {
+        static QP: OnceLock<QuadraticProgram> = OnceLock::new();
+        QP.get_or_init(|| {
+            let Q = SparseColMat::try_new_from_triplets(
+                3,
+                3,
+                &[
+                    Triplet::new(0, 0, 2.0),
+                    Triplet::new(1, 1, 2.0),
+                    Triplet::new(2, 2, 2.0),
+                ],
+            )
+            .unwrap();
+            let c = ColRef::<E>::from_slice(&[0.0; 3]).to_owned();
+            let A = SparseColMat::try_new_from_triplets(
+                2,
+                3,
+                &[
+                    Triplet::new(0, 0, 1.0),
+                    Triplet::new(0, 1, 1.0),
+                    Triplet::new(1, 1, 1.0),
+                    Triplet::new(1, 2, 1.0),
+                ],
+            )
+            .unwrap();
+            let b = ColRef::<E>::from_slice(&[1.0; 2]).to_owned();
+            let l = Col::<E>::zeros(3);
+            let u = ColRef::<E>::from_slice(&[f64::INFINITY; 3]).to_owned();
+
+            QuadraticProgram::new(Q, c, A, b, l, u)
+        })
+    }
+
+    #[fixture]
+    fn build_options() -> &'static SolverOptions {
+        static OPTIONS: OnceLock<SolverOptions> = OnceLock::new();
+        OPTIONS.get_or_init(|| {
+            let mut options = SolverOptions::new();
+            let _ = options.set_option("max_iterations", 1000);
+            let _ = options.set_option("tolerance", 1e-8);
+            options
+        })
+    }
+
+    #[apply(solver_types)]
+    fn test_solver_instances(
+        #[values(build_simple_qp())] qp: &'static QuadraticProgram,
+        solver_type: QPSolverType,
+    ) {
+        let mut state = SolverState::new(
+            Col::ones(qp.get_n_vars()),
+            Col::ones(qp.get_n_cons()),
+            Col::ones(qp.get_n_vars()),
+            -Col::<E>::ones(qp.get_n_vars()),
+        );
+
+        let options = SolverOptions::new();
+
+        let mut properties = SolverHooks {
+            callback: Box::new(ConvergenceOutput::new()),
+            terminator: Box::new(ConvergenceTerminator::new(&options)),
+        };
+
+        let mut solver = QuadraticProgram::solver_builder(qp)
+            .with_solver(solver_type)
+            .with_options(options.clone())
+            .build()
+            .unwrap();
+        let status = solver.solve(&mut state, &mut properties);
+
+        assert_eq!(status.unwrap(), crate::Status::Optimal);
     }
 }

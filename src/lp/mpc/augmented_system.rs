@@ -8,15 +8,12 @@ use faer::{
 use problemo::Problem;
 
 use crate::{
-    E, I, SolverState,
+    E, I, Residual, SolverState,
     linalg::{
         solver::LinearSolver,
         vector_ops::{cwise_inverse, cwise_multiply},
     },
-    lp::{
-        LinearProgram,
-        mpc::{Residual, Step},
-    },
+    lp::{LinearProgram, mpc::Step},
 };
 
 /// Formulation and factorization of the augmented KKT system used to
@@ -39,8 +36,8 @@ pub trait AugmentedSystem<'a, Solver: LinearSolver> {
 /// Assembles and solves the `(n_var + n_con) x (n_var + n_con)` system:
 ///
 /// ```text
-/// [ -D   A^T ] [ dx ] = [ r_d + z_l + z_u - sigma*mu*(X-L)^{-1}e - sigma*mu*(X-U)^{-1}e ]
-/// [  A    0  ] [ dy ]   [ r_p                                                              ]
+/// [  D  -A^T ] [ dx ] = [ r_d + z_l + z_u - sigma*mu*(X-L)^{-1}e - sigma*mu*(X-U)^{-1}e ]
+/// [ -A    0  ] [ dy ]   [ r_p                                                              ]
 /// ```
 ///
 /// where `D = Z_l (X-L)^{-1} + Z_u (X-U)^{-1}`. The dual directions
@@ -49,8 +46,6 @@ pub struct SlackReducedSystem<'a, Solver: LinearSolver> {
     lp: &'a LinearProgram,
     mat: SparseColMat<I, E>,
     solver: Solver,
-
-    _a: PhantomData<&'a ()>,
 }
 
 impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSystem<'a, Solver> {
@@ -79,7 +74,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
             let end = a_col_ptr[j + 1];
             for k in start..end {
                 row_indices.push(a_row_idx[k] + n_var); // A part for dx
-                values.push(a_values[k]);
+                values.push(-a_values[k]);
             }
 
             col_ptrs.push(row_indices.len());
@@ -97,7 +92,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
             let end = a_row_ptr[j + 1];
             for k in start..end {
                 row_indices.push(a_col_idx[k]); // A^T part for dy
-                values.push(a_values[k]);
+                values.push(-a_values[k]);
             }
 
             col_ptrs.push(row_indices.len());
@@ -117,13 +112,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
         let mut solver = Solver::new();
         solver.analyze(mat.as_ref()).unwrap();
 
-        Self {
-            lp,
-            mat,
-            solver,
-
-            _a: PhantomData,
-        }
+        Self { lp, mat, solver }
     }
 
     fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem> {
@@ -140,7 +129,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
 
         // Update the matrix
         for j in 0..self.lp.get_n_vars() {
-            values[col_ptrs[j]] = -sys_diag[j] as E; // Identity part for dx
+            values[col_ptrs[j]] = sys_diag[j] as E; // Identity part for dx
         }
 
         self.solver.factorize(self.mat.as_ref())?;
@@ -160,9 +149,9 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
         let (mut rhs_dual, mut rhs_primal) = rhs.split_at_row_mut(n_var);
         rhs_dual.copy_from(
             residual.get_dual_feasibility()
-                - cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
-                - cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
-                - sigma * mu * (&xl_inv + &xu_inv),
+                + cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
+                + cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
+                + sigma * mu * (&xl_inv + &xu_inv),
         );
         rhs_primal.copy_from(&residual.get_primal_feasibility().as_ref());
 

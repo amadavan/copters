@@ -2,6 +2,8 @@ use faer::{Col, sparse::SparseColMat};
 use problemo::Problem;
 use problemo::common::IntoCommonProblem;
 
+use crate::OptimizationProgram;
+use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::qp::QuadraticProgram;
 use crate::{
@@ -164,6 +166,17 @@ impl From<&LinearProgram> for NonlinearProgram {
     }
 }
 
+impl OptimizationProgram for LinearProgram {
+    fn compute_residual(&self, state: &crate::SolverState) -> crate::Residual {
+        crate::Residual {
+            dual_feasibility: -&self.c + self.A.transpose() * &state.y + &state.z_l + &state.z_u,
+            primal_feasibility: self.A.as_ref() * &state.x - &self.b,
+            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.l).as_ref()),
+            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.u).as_ref()),
+        }
+    }
+}
+
 /// Trait for solvers that operate on a [`LinearProgram`].
 pub trait LPSolver<'a>: Solver {
     /// Creates a new solver instance for the given linear program and options.
@@ -177,6 +190,10 @@ pub enum LPSolverType {
     MpcSimplicialCholesky,
     MpcSupernodalCholesky,
     MpcSimplicialLu,
+    #[cfg(feature = "mkl")]
+    MpcMKL,
+    #[cfg(feature = "panua")]
+    MpcPanua,
 }
 
 pub struct LPSolverBuilder<'a> {
@@ -242,6 +259,20 @@ impl<'a> LPSolverBuilder<'a> {
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
                 >::new(lp.into(), &self.options)))
             }
+            #[cfg(feature = "mkl")]
+            LPSolverType::MpcMKL => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::MKLPardiso,
+                mpc::augmented_system::SlackReducedSystem<'a, crate::linalg::pardiso::MKLPardiso>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp.into(), &self.options))),
+            #[cfg(feature = "panua")]
+            LPSolverType::MpcPanua => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::PanuaSolver,
+                mpc::augmented_system::SlackReducedSystem<'a, crate::linalg::pardiso::PanuaSolver>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp.into(), &self.options))),
         }
     }
 }
@@ -260,10 +291,8 @@ mod test {
     use rstest_reuse::{apply, template};
 
     use crate::{
-        E, I, SolverHooks, SolverOptions, SolverState,
-        callback::ConvergenceOutput,
-        lp::LinearProgram,
-        terminators::{ConvergenceTerminator, Terminator},
+        E, I, SolverHooks, SolverOptions, SolverState, callback::ConvergenceOutput,
+        lp::LinearProgram, terminators::ConvergenceTerminator,
     };
 
     #[template]
