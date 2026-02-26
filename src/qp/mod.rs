@@ -141,6 +141,10 @@ pub enum QPSolverType {
     MpcSimplicialCholesky,
     MpcSupernodalCholesky,
     MpcSimplicialLu,
+    #[cfg(feature = "mkl")]
+    MpcMKL,
+    #[cfg(feature = "panua")]
+    MpcPanua,
 }
 
 pub struct QPSolverBuilder<'a> {
@@ -200,8 +204,22 @@ impl<'a> QPSolverBuilder<'a> {
             }
             QPSolverType::MpcSimplicialLu => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
                 'a,
-                SimplicialSparseCholesky,
-                mpc::augmented_system::StandardSystem<'a, SimplicialSparseCholesky>,
+                SimplicialSparseLu,
+                mpc::augmented_system::StandardSystem<'a, SimplicialSparseLu>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp, &self.options))),
+            #[cfg(feature = "mkl")]
+            QPSolverType::MpcMKL => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::MKLPardiso,
+                mpc::augmented_system::StandardSystem<'a, crate::linalg::pardiso::MKLPardiso>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp, &self.options))),
+            #[cfg(feature = "panua")]
+            QPSolverType::MpcPanua => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::PanuaSolver,
+                mpc::augmented_system::StandardSystem<'a, crate::linalg::pardiso::PanuaSolver>,
                 mpc::mu_update::AdaptiveMuUpdate<'a>,
             >::new(lp, &self.options))),
         }
@@ -222,9 +240,8 @@ mod tests {
     use rstest_reuse::{apply, template};
 
     use crate::{
-        E, SolverHooks, SolverOptions, SolverState,
-        callback::ConvergenceOutput,
-        terminators::{ConvergenceTerminator, Terminator},
+        E, SolverHooks, SolverOptions, SolverState, callback::ConvergenceOutput,
+        terminators::ConvergenceTerminator,
     };
 
     #[template]

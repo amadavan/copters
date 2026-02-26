@@ -190,6 +190,10 @@ pub enum LPSolverType {
     MpcSimplicialCholesky,
     MpcSupernodalCholesky,
     MpcSimplicialLu,
+    #[cfg(feature = "mkl")]
+    MpcMKL,
+    #[cfg(feature = "panua")]
+    MpcPanua,
 }
 
 pub struct LPSolverBuilder<'a> {
@@ -255,6 +259,20 @@ impl<'a> LPSolverBuilder<'a> {
                     mpc::mu_update::AdaptiveMuUpdate<'a>,
                 >::new(lp.into(), &self.options)))
             }
+            #[cfg(feature = "mkl")]
+            LPSolverType::MpcMKL => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::MKLPardiso,
+                mpc::augmented_system::SlackReducedSystem<'a, crate::linalg::pardiso::MKLPardiso>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp.into(), &self.options))),
+            #[cfg(feature = "panua")]
+            LPSolverType::MpcPanua => Ok(Box::new(mpc::MehrotraPredictorCorrector::<
+                'a,
+                crate::linalg::pardiso::PanuaSolver,
+                mpc::augmented_system::SlackReducedSystem<'a, crate::linalg::pardiso::PanuaSolver>,
+                mpc::mu_update::AdaptiveMuUpdate<'a>,
+            >::new(lp.into(), &self.options))),
         }
     }
 }

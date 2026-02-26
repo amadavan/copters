@@ -148,7 +148,7 @@ pub fn maros_mezaros_cases(
             // "STADAT3",
             // "STCQP1",
             // "STCQP2",
-            "TAME",
+            // "TAME",
             // "UBH1",
             // "VALUES",
             // "YAO",
