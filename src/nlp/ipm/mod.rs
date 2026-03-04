@@ -89,12 +89,14 @@ impl<
         }
 
         // Update barrier parameter
-        let mu = self.mu_update.get(state);
+        state.mu = Some(self.mu_update.get(state));
 
         // Compute search direction
         // Affine scaling direction (predictor step)
         let mut rhs = RHS::from(&*state);
         let step_aff = self.augmented_system.solve(state, &rhs)?;
+
+        state.safety_factor = Some(1.);
         let alpha_aff = self.line_search.perform_line_search(state, &step_aff);
 
         let mut state_aff = state.clone();
@@ -103,12 +105,16 @@ impl<
         state_aff.z_l += alpha_aff * &step_aff.dz_l;
         state_aff.z_u += alpha_aff * &step_aff.dz_u;
 
+        let mu_aff = self.mu_update.get(&state_aff);
+        let sigma = E::powf(mu_aff / state.mu.unwrap_or(E::from(1.)), 3.);
+        state.mu = Some(sigma * state.mu.unwrap());
+
         // Centering step
         let ones = Col::<E>::ones(state.x.nrows());
-        *rhs.r_l_mut() += state_aff.mu.unwrap() * &ones;
-        *rhs.r_u_mut() += state_aff.mu.unwrap() * &ones;
+        *rhs.r_l_mut() += state.mu.unwrap() * &ones;
+        *rhs.r_u_mut() += state.mu.unwrap() * &ones;
 
-        let step_cen = self.augmented_system.solve(state, &rhs)?;
+        // let step_cen = self.augmented_system.solve(state, &rhs)?;
 
         // Corrector step
         *rhs.r_l_mut() -=
@@ -118,11 +124,24 @@ impl<
 
         let step_corr = self.augmented_system.solve(state, &rhs)?;
 
+        state.safety_factor = Some(0.99); // Reduce step length to maintain stability
+        let alpha_corr = self.line_search.perform_line_search(state, &step_corr);
+
         // See if we get an acceptable trial point from the line search
         // and iterate till we find one
 
+        // Update the state with the corrector step and step lengths
+        state.x += alpha_corr * &step_corr.dx;
+        state.y += alpha_corr * &step_corr.dy;
+        state.z_l += alpha_corr * &step_corr.dz_l;
+        state.z_u += alpha_corr * &step_corr.dz_u;
+        state.alpha_primal = alpha_corr;
+        state.alpha_dual = alpha_corr;
+
         // Update the state
         self.nlp.update_residual(state);
+        state.status = Status::InProgress;
+
         Ok(())
     }
 }
@@ -173,7 +192,7 @@ impl<
             if self.options.max_iterations > 0 {
                 self.options.max_iterations as usize
             } else {
-                1e6 as usize // Default to a large number if not set
+                1e1 as usize // Default to a large number if not set
             }
         };
         for iter in 0..max_iter {

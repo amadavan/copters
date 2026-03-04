@@ -276,7 +276,7 @@ impl<'a> LPSolverBuilder<'a> {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod tests {
     use super::*;
 
     use std::sync::OnceLock;
@@ -306,7 +306,7 @@ mod test {
     }
 
     #[fixture]
-    fn build_simple_lp() -> &'static LinearProgram {
+    pub(crate) fn build_simple_lp() -> &'static LinearProgram {
         static LP: OnceLock<LinearProgram> = OnceLock::new();
         LP.get_or_init(|| {
             let a_triplets: [Triplet<I, I, E>; 9] = [

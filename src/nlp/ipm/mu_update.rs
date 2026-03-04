@@ -35,10 +35,7 @@ impl MuUpdate for AdaptiveMuUpdate {
     fn get(&mut self, state: &SolverState) -> E {
         // Implement the logic to compute the new value of mu based on the current state
         // This could involve using the complementarity conditions, residuals, or other metrics
-
-        // TODO: handle different modes, Fix/Free, etc.
-
-        // Placeholder implementation
-        1e-3 // Return a dummy value for now
+        state.cs_lower.transpose() * state.x.as_ref()
+            + state.cs_upper.transpose() * state.x.as_ref() / state.x.nrows() as E
     }
 }

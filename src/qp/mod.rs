@@ -2,7 +2,6 @@ use faer::{Col, sparse::SparseColMat};
 use problemo::Problem;
 use problemo::common::IntoCommonProblem;
 
-use crate::{OptimizationProgram, SolverState};
 use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::{
@@ -10,6 +9,7 @@ use crate::{
     linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
     linalg::lu::SimplicialSparseLu,
 };
+use crate::{OptimizationProgram, SolverState};
 
 pub mod mpc;
 
@@ -91,10 +91,8 @@ impl QuadraticProgram {
 
 impl OptimizationProgram for QuadraticProgram {
     fn update_residual(&self, state: &mut SolverState) {
-        state.dual_feasibility = -&self.Q * &state.x - &self.c
-            + self.A.transpose() * &state.y
-            + &state.z_l
-            + &state.z_u;
+        state.dual_feasibility =
+            -&self.Q * &state.x - &self.c + self.A.transpose() * &state.y + &state.z_l + &state.z_u;
         state.primal_feasibility = self.A.as_ref() * &state.x - &self.b;
         state.cs_lower = -cwise_multiply_finite(state.z_l.as_ref(), (&state.x - &self.l).as_ref());
         state.cs_upper = -cwise_multiply_finite(state.z_u.as_ref(), (&state.x - &self.u).as_ref());
@@ -104,6 +102,32 @@ impl OptimizationProgram for QuadraticProgram {
 #[allow(non_snake_case, unused)]
 impl From<QuadraticProgram> for NonlinearProgram {
     fn from(qp: QuadraticProgram) -> Self {
+        let n = qp.get_n_vars();
+        let m = qp.get_n_cons();
+
+        let Q = qp.Q.clone();
+        let c = qp.c.clone();
+        let A = qp.A.clone();
+        let b = qp.b.clone();
+        let l = qp.l.clone();
+        let u = qp.u.clone();
+
+        let Q2 = Q.clone();
+        let c2 = c.clone();
+        let A2 = A.clone();
+
+        let f = Box::new(move |x: &Col<E>| 0.5 * x.transpose() * &Q * x + c.transpose() * x);
+        let g = Box::new(move |x: &Col<E>| A.clone() * x - &b);
+        let df = Box::new(move |x: &Col<E>| Q2.clone() * x + c2.clone());
+        let dg = Box::new(move |_: &Col<E>| A2.clone());
+
+        NonlinearProgram::new_boxed(n, m, f, g, df, dg, None, Some(l), Some(u))
+    }
+}
+
+#[allow(non_snake_case, unused)]
+impl From<&QuadraticProgram> for NonlinearProgram {
+    fn from(qp: &QuadraticProgram) -> Self {
         let n = qp.get_n_vars();
         let m = qp.get_n_cons();
 
@@ -226,7 +250,7 @@ impl<'a> QPSolverBuilder<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use std::sync::OnceLock;
@@ -257,7 +281,7 @@ mod tests {
 
     #[fixture]
     #[allow(non_snake_case)]
-    fn build_simple_qp() -> &'static QuadraticProgram {
+    pub(crate) fn build_simple_qp() -> &'static QuadraticProgram {
         static QP: OnceLock<QuadraticProgram> = OnceLock::new();
         QP.get_or_init(|| {
             let Q = SparseColMat::try_new_from_triplets(

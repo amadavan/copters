@@ -122,9 +122,11 @@ impl<'a, LinSolve: LinearSolver> StandardSystem<'a, LinSolve> {
             let start = dg_col_ptr[j];
             let end = dg_col_ptr[j + 1];
             for k in start..end {
-                row_indices.push(dg_row_idx[k]); // Jacobian part for dy
+                row_indices.push(dg_row_idx[k] + self.nlp.n_var); // Jacobian part for dy
                 values.push(dg_vals[k]);
             }
+
+            col_ptrs.push(row_indices.len());
         }
 
         let dg_csr = dg.to_row_major().unwrap();
@@ -230,8 +232,8 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
             }
         };
 
-        let mut rhs_vec = Col::<E>::zeros(n_var + n_cons);
-        let (mut rhs_dual, mut rhs_primal) = rhs_vec.split_at_row_mut(n_var);
+        let mut rhs = Col::<E>::zeros(n_var + n_cons);
+        let (mut rhs_dual, mut rhs_primal) = rhs.split_at_row_mut(n_var);
         rhs_dual.copy_from(
             r_d + cwise_multiply(xl_inv.as_ref(), r_l.as_ref())
                 + cwise_multiply(xu_inv.as_ref(), r_u.as_ref())
@@ -240,7 +242,7 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
         rhs_primal.copy_from(r_c.as_ref());
 
         let solution = {
-            let sol = self.solver.solve(rhs_vec.as_mat().as_ref())?;
+            let sol = self.solver.solve(rhs.as_mat().as_ref())?;
             sol.col(0).to_owned()
         };
         let (dx, dy) = solution.split_at_row(n_var);

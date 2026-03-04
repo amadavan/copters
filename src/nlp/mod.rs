@@ -9,7 +9,12 @@ use problemo::{Problem, common::IntoCommonProblem};
 
 use crate::{
     E, I, OptimizationProgram, OptionTrait, Solver, SolverOptions, SolverState,
-    linalg::vector_ops::cwise_multiply_finite,
+    linalg::{cholesky::SimplicialSparseCholesky, vector_ops::cwise_multiply_finite},
+    nlp::ipm::{
+        augmented_system::{AugmentedSystem, StandardSystem},
+        line_search::PDFeasibileLineSearch,
+        mu_update::AdaptiveMuUpdate,
+    },
 };
 
 /// A nonlinear program of the form:
@@ -151,10 +156,7 @@ impl OptimizationProgram for NonlinearProgram {
         let inf = E::INFINITY * Col::<E>::ones(self.n_var);
         let (l, u) = (self.l().unwrap_or(&zero), self.u().unwrap_or(&inf));
 
-        state.dual_feasibility = -self.df(x)
-                + self.dg(x).transpose() * y
-                + z_l
-                + z_u;
+        state.dual_feasibility = -self.df(x) + self.dg(x).transpose() * y + z_l + z_u;
         state.primal_feasibility = self.g(x);
         state.cs_lower = -cwise_multiply_finite(z_l.as_ref(), (x - l).as_ref());
         state.cs_upper = -cwise_multiply_finite(z_u.as_ref(), (x - u).as_ref());
@@ -236,13 +238,89 @@ impl<'a> NLPSolverBuilder<'a> {
 
         // Construct the appropriate solver based on the solver type
         match solver_type {
-            // NLPSolverType::InteriorPointMethod => {
-            //     Ok(Box::new(ipm::InteriorPointMethod::<>::new(nlp, &self.options)))
-            // }
+            NLPSolverType::InteriorPointMethod => {
+                Ok(Box::new(ipm::InteriorPointMethod::<
+                    SimplicialSparseCholesky,
+                    StandardSystem<SimplicialSparseCholesky>,
+                    AdaptiveMuUpdate,
+                    PDFeasibileLineSearch,
+                >::new(nlp, &self.options)))
+            }
             NLPSolverType::GradientDescent => Ok(Box::new(gd::GradientDescent::<
                 gd::stepsize::ConstantStepSize,
             >::new(nlp, &self.options))),
             _ => Err("Invalid solver type.".gloss()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lp::tests::build_simple_lp;
+    use crate::{
+        I, SolverHooks, Status, callback::ConvergenceOutput, terminators::ConvergenceTerminator,
+    };
+    use faer::Col;
+    use rstest::rstest;
+
+    #[rstest]
+    fn test_simple_lp(#[values(NLPSolverType::InteriorPointMethod)] solver_type: NLPSolverType) {
+        let lp = build_simple_lp();
+        let nlp: NonlinearProgram = lp.into();
+
+        let mut state = SolverState::new(
+            Col::ones(lp.get_objective().nrows()),
+            Col::ones(lp.get_rhs().nrows()),
+            Col::ones(lp.get_objective().nrows()),
+            -Col::<E>::ones(lp.get_objective().nrows()),
+        );
+
+        let mut options = SolverOptions::new();
+        options.set_option("max_iterations", 10 as I).unwrap();
+
+        let mut properties = SolverHooks {
+            callback: Box::new(ConvergenceOutput::new()),
+            terminator: Box::new(ConvergenceTerminator::new(&options)),
+        };
+
+        let mut solver = NonlinearProgram::solver_builder(&nlp)
+            .with_solver(solver_type)
+            .with_options(options.clone())
+            .build()
+            .unwrap();
+        let status = solver.solve(&mut state, &mut properties);
+
+        assert_eq!(status.unwrap(), crate::Status::Optimal);
+    }
+
+    #[rstest]
+    fn test_simple_qp(#[values(NLPSolverType::InteriorPointMethod)] solver_type: NLPSolverType) {
+        let qp = build_simple_lp();
+        let nlp: NonlinearProgram = qp.into();
+
+        let mut state = SolverState::new(
+            Col::ones(qp.get_n_vars()),
+            Col::ones(qp.get_n_cons()),
+            Col::ones(qp.get_n_vars()),
+            -Col::<E>::ones(qp.get_n_vars()),
+        );
+
+        let mut options = SolverOptions::new();
+        options.set_option("max_iterations", 10 as I).unwrap();
+
+        let mut properties = SolverHooks {
+            callback: Box::new(ConvergenceOutput::new()),
+            terminator: Box::new(ConvergenceTerminator::new(&options)),
+        };
+
+        let mut solver = NonlinearProgram::solver_builder(&nlp)
+            .with_solver(solver_type)
+            .with_options(options.clone())
+            .build()
+            .unwrap();
+        let status = solver.solve(&mut state, &mut properties);
+
+        assert_eq!(status.unwrap(), crate::Status::Optimal);
     }
 }
