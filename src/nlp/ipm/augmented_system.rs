@@ -5,12 +5,13 @@ use faer::{
 use macros::explicit_options;
 
 use crate::{
-    E, I, Residual, SolverOptions, SolverState,
+    E, I, SearchDirection, SolverOptions, SolverState,
+    ipm::RHS,
     linalg::{
         solver::LinearSolver,
         vector_ops::{cwise_inverse, cwise_multiply},
     },
-    nlp::{NonlinearProgram, ipm::Step},
+    nlp::NonlinearProgram,
 };
 
 pub trait AugmentedSystem<'a, LinSolve: LinearSolver> {
@@ -26,9 +27,9 @@ pub trait AugmentedSystem<'a, LinSolve: LinearSolver> {
     /// # Returns
     ///
     /// The solution vector of the augmented system.
-    fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Step;
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection;
 
-    fn resolve(&mut self, state: &SolverState, rhs: &Residual) -> Step;
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection;
 }
 
 #[explicit_options(name = SolverOptions)]
@@ -39,7 +40,7 @@ pub struct StandardSystem<'a, LinSolve: LinearSolver> {
 }
 
 impl<'a, LinSolve: LinearSolver> StandardSystem<'a, LinSolve> {
-    fn assemble_matrix(&mut self, state: &SolverState, rhs: &Residual) -> SparseColMat<I, E> {
+    fn assemble_matrix(&mut self, state: &SolverState, rhs: &RHS) -> SparseColMat<I, E> {
         // Assemble the augmented system matrix based on the current state and the problem data
         // This typically involves computing the Hessian of the Lagrangian and the Jacobian of the constraints
         let xl_inv = {
@@ -168,7 +169,7 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
         }
     }
 
-    fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Step {
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection {
         // Matrix may change at each iteration, due to nonlinearity. The entire system matrix must be reconstructed each time.
         let mat = self.assemble_matrix(state, rhs);
 
@@ -206,7 +207,7 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
         self.resolve(state, rhs)
     }
 
-    fn resolve(&mut self, state: &SolverState, rhs: &Residual) -> Step {
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection {
         todo!()
     }
 }

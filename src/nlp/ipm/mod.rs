@@ -44,19 +44,13 @@ use problemo::Problem;
 
 use crate::{
     E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
-    linalg::{solver::LinearSolver, vector_ops::cwise_multiply},
+    ipm::RHS,
+    linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     nlp::{
         NLPSolver, NonlinearProgram,
         ipm::{augmented_system::AugmentedSystem, line_search::LineSearch, mu_update::MuUpdate},
     },
 };
-
-pub struct Step {
-    dx: Col<f64>,
-    dy: Col<f64>,
-    dz_l: Col<f64>,
-    dz_u: Col<f64>,
-}
 
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "max_iterations", type_ = I, description = "Maximum number of iterations for the interior point method")]
@@ -94,19 +88,28 @@ impl<
 
         // Compute search direction
         // Affine scaling direction (predictor step)
-        let mut rhs = state.residual.clone();
+        let mut rhs = RHS::from(&*state);
         let step_aff = self.augmented_system.solve(state, &rhs);
+        let alpha_aff = self.line_search.perform_line_search(state, &step_aff);
+
+        let mut state_aff = state.clone();
+        state_aff.x += alpha_aff * &step_aff.dx;
+        state_aff.y += alpha_aff * &step_aff.dy;
+        state_aff.z_l += alpha_aff * &step_aff.dz_l;
+        state_aff.z_u += alpha_aff * &step_aff.dz_u;
 
         // Centering step
         let ones = Col::<E>::ones(state.x.nrows());
-        rhs.cs_lower += mu * &ones;
-        rhs.cs_upper += mu * &ones;
+        *rhs.r_l_mut() += state_aff.mu.unwrap() * &ones;
+        *rhs.r_u_mut() += state_aff.mu.unwrap() * &ones;
 
         let step_cen = self.augmented_system.solve(state, &rhs);
 
         // Corrector step
-        rhs.cs_lower -= cwise_multiply(step_aff.dx.as_ref(), step_aff.dz_l.as_ref());
-        rhs.cs_upper -= cwise_multiply(step_aff.dx.as_ref(), step_aff.dz_u.as_ref());
+        *rhs.r_l_mut() -=
+            cwise_multiply_finite(step_aff.get_dz_l().as_ref(), step_aff.get_dx().as_ref());
+        *rhs.r_u_mut() -=
+            cwise_multiply_finite(step_aff.get_dz_u().as_ref(), step_aff.get_dx().as_ref());
 
         let step_corr = self.augmented_system.solve(state, &rhs);
 
@@ -114,7 +117,7 @@ impl<
         // and iterate till we find one
 
         // Update the state
-        state.residual = self.nlp.compute_residual(state);
+        self.nlp.update_residual(state);
         Ok(())
     }
 }
@@ -156,7 +159,7 @@ impl<
     ) -> Result<Status, Problem> {
         hooks.callback.init(state);
         // self.initialize(state);
-        state.residual = self.nlp.compute_residual(state);
+        self.nlp.update_residual(state);
 
         state.nit = 0;
         state.status = Status::InProgress;

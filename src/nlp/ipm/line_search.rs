@@ -1,10 +1,7 @@
 use faer::{Col, unzip, zip};
 use macros::explicit_options;
 
-use crate::{
-    E, SolverOptions, SolverState,
-    nlp::{NonlinearProgram, ipm::Step},
-};
+use crate::{E, SearchDirection, SolverOptions, SolverState, nlp::NonlinearProgram};
 
 pub trait LineSearch<'a> {
     fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self
@@ -22,7 +19,7 @@ pub trait LineSearch<'a> {
     /// # Returns
     ///
     /// A step size `alpha` that satisfies the line search criteria.
-    fn perform_line_search(&self, state: &SolverState, search_direction: &Step) -> E;
+    fn perform_line_search(&self, state: &SolverState, search_direction: &SearchDirection) -> E;
 }
 
 #[explicit_options(name = SolverOptions)]
@@ -43,7 +40,7 @@ impl<'a> LineSearch<'a> for BacktrackingLineSearch<'a> {
         }
     }
 
-    fn perform_line_search(&self, state: &SolverState, search_direction: &Step) -> E {
+    fn perform_line_search(&self, state: &SolverState, search_direction: &SearchDirection) -> E {
         // Implement the backtracking line search logic here
         // This typically involves starting with an initial step size and iteratively reducing it until a certain condition is met
 
@@ -70,7 +67,7 @@ impl<'a> LineSearch<'a> for PDFeasibileLineSearch<'a> {
         }
     }
 
-    fn perform_line_search(&self, state: &SolverState, step: &Step) -> E {
+    fn perform_line_search(&self, state: &SolverState, step: &SearchDirection) -> E {
         // Implement the primal-dual feasible line search logic here
         let zero = Col::<E>::zeros(state.x.nrows());
         let inf = E::INFINITY * Col::<E>::ones(state.x.nrows());
