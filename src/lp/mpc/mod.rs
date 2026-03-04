@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 
-use faer::{Col, traits::num_traits::pow};
+use faer::traits::num_traits::pow;
 use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, OptimizationProgram, SearchDirection, Solver, SolverHooks, SolverOptions, SolverState,
+    Status,
+    ipm::RHS,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{
         LPSolver, LinearProgram,
@@ -16,14 +18,6 @@ use crate::{
 pub mod augmented_system;
 pub mod line_search;
 pub mod mu_update;
-
-/// A primal-dual search direction `(dx, dy, dz_l, dz_u)`.
-pub struct Step {
-    dx: Col<E>,
-    dy: Col<E>,
-    dz_l: Col<E>,
-    dz_u: Col<E>,
-}
 
 /// Mehrotra predictor-corrector interior-point solver for linear programs.
 ///
@@ -48,8 +42,8 @@ pub struct MehrotraPredictorCorrector<
     system: Sys,
     mu_updater: MU,
 
-    aff_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
-    cc_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &Step) -> (E, E),
+    aff_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &SearchDirection) -> (E, E),
+    cc_ls: fn(&'a LinearProgram, &SolverOptions, &SolverState, &SearchDirection) -> (E, E),
 
     _solver: PhantomData<LinSolve>,
 }
@@ -76,7 +70,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.mu = Some(self.mu_updater.get(state));
         state.safety_factor = Some(E::from(1.));
 
-        let mut rhs = self.lp.compute_residual(state);
+        let mut rhs = RHS::from(&*state);
 
         // Affine Step
         let aff_step = self.system.solve(state, &rhs)?;
@@ -96,8 +90,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         ));
         state.safety_factor = Some(E::from(0.99)); // Reduce step length to maintain stability
 
-        rhs.cs_lower -= cwise_multiply_finite(aff_step.dz_l.as_ref(), aff_step.dx.as_ref());
-        rhs.cs_upper -= cwise_multiply_finite(aff_step.dz_u.as_ref(), aff_step.dx.as_ref());
+        *rhs.r_l_mut() -= cwise_multiply_finite(aff_step.dz_l.as_ref(), aff_step.dx.as_ref());
+        *rhs.r_u_mut() -= cwise_multiply_finite(aff_step.dz_u.as_ref(), aff_step.dx.as_ref());
 
         let corr_step = self.system.solve(state, &rhs)?;
         let (alpha_corr_primal, alpha_corr_dual) =
@@ -111,7 +105,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.alpha_primal = alpha_corr_primal;
         state.alpha_dual = alpha_corr_dual;
 
-        state.residual = self.lp.compute_residual(state);
+        self.lp.update_residual(state);
         state.status = Status::InProgress;
 
         Ok(())
@@ -150,6 +144,7 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
         state.nit = 0;
         state.set_status(Status::InProgress);
         properties.callback.init(state);
+        self.lp.update_residual(state);
 
         let max_iter = self.get_max_iter();
         for iter in 0..max_iter {

@@ -1,15 +1,12 @@
 use faer::{unzip, zip};
 
-use crate::{
-    E, SolverOptions, SolverState,
-    lp::{LinearProgram, mpc::Step},
-};
+use crate::{E, SearchDirection, SolverOptions, SolverState, lp::LinearProgram};
 
 pub fn compute_max_step_length<'a>(
     lp: &'a LinearProgram,
     _options: &SolverOptions,
     state: &SolverState,
-    step: &Step,
+    step: &SearchDirection,
 ) -> (E, E) {
     let xl = &state.x - &lp.l;
     let xu = &state.x - &lp.u;

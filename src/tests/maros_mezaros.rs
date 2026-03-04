@@ -1,5 +1,7 @@
+use std::sync::OnceLock;
+
 use faer::Col;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use rstest_reuse::{apply, template};
 
 use crate::{
@@ -7,8 +9,16 @@ use crate::{
     callback::ConvergenceOutput,
     interface::sif::TryFromSIF,
     qp::{QPSolverType, QuadraticProgram},
-    terminators::{ConvergenceTerminator, Terminator},
+    terminators::ConvergenceTerminator,
 };
+
+#[fixture]
+fn download_cases() -> &'static () {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        loaders::sif::download_maros_mezaros_qp().unwrap();
+    })
+}
 
 #[template]
 #[rstest]
@@ -165,7 +175,7 @@ pub fn maros_mezaros_cases(
 }
 
 #[apply(maros_mezaros_cases)]
-fn qp(case_name: &str, solver_type: QPSolverType) {
+fn qp(_download_cases: &(), case_name: &str, solver_type: QPSolverType) {
     let qp =
         QuadraticProgram::try_from_sif(&loaders::sif::maros_mezaros::get_case(case_name).unwrap())
             .unwrap();

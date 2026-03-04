@@ -68,7 +68,7 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
         }
 
         // Update the state
-        state.residual = self.nlp.compute_residual(state);
+        self.nlp.update_residual(state);
 
         state.alpha_primal = step_size;
         state.alpha_dual = step_size;
@@ -128,9 +128,8 @@ mod tests {
     use faer::sparse::{SparseColMat, Triplet};
 
     use crate::{
-        callback::{Callback, ConvergenceOutput},
-        nlp::gd::stepsize::ConstantStepSize,
-        terminators::{SlowProgressTerminator, Terminator},
+        callback::ConvergenceOutput, nlp::gd::stepsize::ConstantStepSize,
+        terminators::SlowProgressTerminator,
     };
 
     use super::*;

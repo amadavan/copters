@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use faer::{
     col::generic::Col,
     prelude::ReborrowMut,
@@ -8,12 +6,13 @@ use faer::{
 use problemo::Problem;
 
 use crate::{
-    E, I, Residual, SolverState,
+    E, I, SearchDirection, SolverState,
+    ipm::RHS,
     linalg::{
         solver::LinearSolver,
         vector_ops::{cwise_inverse, cwise_multiply},
     },
-    lp::{LinearProgram, mpc::Step},
+    lp::LinearProgram,
 };
 
 /// Formulation and factorization of the augmented KKT system used to
@@ -25,10 +24,10 @@ pub trait AugmentedSystem<'a, Solver: LinearSolver> {
         Self: Sized;
 
     /// Updates the numeric values, re-factorizes, and solves for a search direction.
-    fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem>;
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem>;
 
     /// Solves for a search direction reusing the current factorization.
-    fn resolve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem>;
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem>;
 }
 
 /// Standard augmented system formulation.
@@ -115,7 +114,7 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
         Self { lp, mat, solver }
     }
 
-    fn solve(&mut self, state: &SolverState, rhs: &Residual) -> Result<Step, Problem> {
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem> {
         // Get necessary values
         let xl_inv = cwise_inverse((&state.x - &self.lp.l).as_ref());
         let xu_inv = cwise_inverse((&state.x - &self.lp.u).as_ref());
@@ -137,10 +136,12 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
         self.resolve(state, rhs)
     }
 
-    fn resolve(&mut self, state: &SolverState, residual: &Residual) -> Result<Step, Problem> {
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem> {
         let (n_var, n_con) = self.lp.get_dims();
 
-        // Convert residual to right hand side for the linear system
+        let (r_d, r_c, r_l, r_u) = (rhs.r_d(), rhs.r_c(), rhs.r_l(), rhs.r_u());
+
+        // Convert rhs to right hand side for the linear system
         let (sigma, mu) = (state.sigma.unwrap(), state.mu.unwrap());
         let mut rhs = Col::zeros(n_var + n_con);
         let xl_inv = cwise_inverse((&state.x - &self.lp.l).as_ref());
@@ -148,12 +149,11 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
 
         let (mut rhs_dual, mut rhs_primal) = rhs.split_at_row_mut(n_var);
         rhs_dual.copy_from(
-            residual.get_dual_feasibility()
-                + cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref())
-                + cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref())
+            r_d + cwise_multiply(xl_inv.as_ref(), r_l.as_ref())
+                + cwise_multiply(xu_inv.as_ref(), r_u.as_ref())
                 + sigma * mu * (&xl_inv + &xu_inv),
         );
-        rhs_primal.copy_from(&residual.get_primal_feasibility().as_ref());
+        rhs_primal.copy_from(r_c.as_ref());
 
         let solution = {
             let sol = self.solver.solve(rhs.as_mat().as_ref())?;
@@ -165,15 +165,15 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
                 cwise_multiply(xl_inv.as_ref(), state.z_l.as_ref()).as_ref(),
                 dx.as_ref(),
             )
-            + cwise_multiply(xl_inv.as_ref(), residual.cs_lower.as_ref());
+            + cwise_multiply(xl_inv.as_ref(), r_l.as_ref());
         let dz_u = sigma * mu * xu_inv.as_ref()
             - cwise_multiply(
                 cwise_multiply(xu_inv.as_ref(), state.z_u.as_ref()).as_ref(),
                 dx.as_ref(),
             )
-            + cwise_multiply(xu_inv.as_ref(), residual.cs_upper.as_ref());
+            + cwise_multiply(xu_inv.as_ref(), r_u.as_ref());
 
-        Ok(Step {
+        Ok(SearchDirection {
             dx: dx.to_owned(), // Placeholder
             dy: dy.to_owned(), // Placeholder
             dz_l,              // Placeholder
@@ -282,11 +282,11 @@ impl<'a, Solver: LinearSolver> AugmentedSystem<'a, Solver> for SlackReducedSyste
 //         }
 //     }
 
-//     fn solve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<Step, Problem> {
+//     fn solve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<SearchDirection, Problem> {
 //         unimplemented!()
 //     }
 
-//     fn resolve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<Step, Problem> {
+//     fn resolve(&mut self, _state: &SolverState, _rhs: &Residual) -> Result<SearchDirection, Problem> {
 //         unimplemented!()
 //     }
 // }

@@ -26,6 +26,7 @@ pub type I = usize;
 
 pub mod callback;
 pub mod interface;
+pub(crate) mod ipm;
 pub mod linalg;
 pub mod lp;
 pub mod nlp;
@@ -81,7 +82,7 @@ pub enum Status {
 }
 
 pub trait OptimizationProgram {
-    fn compute_residual(&self, state: &SolverState) -> Residual;
+    fn update_residual(&self, state: &mut SolverState);
 }
 
 /// Trait for iterative optimization solvers.
@@ -103,15 +104,21 @@ pub struct SolverState {
     status: Status,
     nit: usize,
 
+    // Primal-Dual Variables
     x: Col<E>,
     y: Col<E>,
     z_l: Col<E>,
     z_u: Col<E>,
 
+    // Residual
+    dual_feasibility: Col<E>,
+    primal_feasibility: Col<E>,
+    cs_lower: Col<E>,
+    cs_upper: Col<E>,
+
+    // Step size
     alpha_primal: E,
     alpha_dual: E,
-
-    residual: Residual,
 
     // IPM-specific state
     sigma: Option<E>,
@@ -142,12 +149,10 @@ impl SolverState {
             alpha_primal: E::from(1.),
             alpha_dual: E::from(1.),
 
-            residual: Residual {
-                dual_feasibility: Col::<E>::zeros(x.nrows()),
-                primal_feasibility: Col::<E>::zeros(y.nrows()),
-                cs_lower: Col::<E>::zeros(z_l.nrows()),
-                cs_upper: Col::<E>::zeros(z_u.nrows()),
-            },
+            dual_feasibility: Col::<E>::zeros(x.nrows()),
+            primal_feasibility: Col::<E>::zeros(y.nrows()),
+            cs_lower: Col::<E>::zeros(z_l.nrows()),
+            cs_upper: Col::<E>::zeros(z_u.nrows()),
 
             sigma: None,
             mu: None,
@@ -183,95 +188,6 @@ impl SolverState {
         &self.z_l - &self.z_u
     }
 
-    pub fn get_primal_infeasibility(&self) -> &Col<E> {
-        self.residual.get_primal_feasibility()
-    }
-
-    pub fn get_dual_infeasibility(&self) -> &Col<E> {
-        self.residual.get_dual_feasibility()
-    }
-
-    pub fn get_complimentary_slack_lower(&self) -> &Col<E> {
-        self.residual.get_cs_lower()
-    }
-
-    pub fn get_complimentary_slack_upper(&self) -> &Col<E> {
-        self.residual.get_cs_upper()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PrimalDualVariables {
-    x: Col<E>,
-    y: Col<E>,
-    z_l: Col<E>,
-    z_u: Col<E>,
-}
-
-impl PrimalDualVariables {
-    pub fn new(x: Col<E>, y: Col<E>, z_l: Col<E>, z_u: Col<E>) -> Self {
-        Self { x, y, z_l, z_u }
-    }
-
-    pub fn new_empty(n: usize, m: usize) -> Self {
-        Self {
-            x: Col::<E>::zeros(n),
-            y: Col::<E>::zeros(m),
-            z_l: Col::<E>::zeros(n),
-            z_u: Col::<E>::zeros(n),
-        }
-    }
-
-    pub fn get_primal(&self) -> &Col<E> {
-        &self.x
-    }
-
-    pub fn set_primal(&mut self, x: Col<E>) {
-        self.x = x;
-    }
-
-    pub fn get_dual(&self) -> &Col<E> {
-        &self.y
-    }
-
-    pub fn set_dual(&mut self, y: Col<E>) {
-        self.y = y;
-    }
-
-    pub fn get_reduced_cost(&self) -> Col<E> {
-        &self.z_l - &self.z_u
-    }
-
-    pub fn get_dual_lower(&self) -> &Col<E> {
-        &self.z_l
-    }
-
-    pub fn set_dual_lower(&mut self, z_l: Col<E>) {
-        self.z_l = z_l;
-    }
-
-    pub fn get_dual_upper(&self) -> &Col<E> {
-        &self.z_u
-    }
-
-    pub fn set_dual_upper(&mut self, z_u: Col<E>) {
-        self.z_u = z_u;
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Residual {
-    /// Dual feasibility residual: `grad_f(x) - grad_g(x)^T y - z_l - z_u`
-    dual_feasibility: Col<E>,
-    /// Primal feasibility residual: `g(x)`
-    primal_feasibility: Col<E>,
-    /// Complementary slackness residual for lower bounds: `-Z_l (x - l)`
-    cs_lower: Col<E>,
-    /// Complementary slackness residual for upper bounds: `-Z_u (x - u)`
-    cs_upper: Col<E>,
-}
-
-impl Residual {
     pub fn get_dual_feasibility(&self) -> &Col<E> {
         &self.dual_feasibility
     }
@@ -286,6 +202,31 @@ impl Residual {
 
     pub fn get_cs_upper(&self) -> &Col<E> {
         &self.cs_upper
+    }
+}
+
+pub struct SearchDirection {
+    dx: Col<E>,
+    dy: Col<E>,
+    dz_l: Col<E>,
+    dz_u: Col<E>,
+}
+
+impl SearchDirection {
+    pub fn get_dx(&self) -> &Col<E> {
+        &self.dx
+    }
+
+    pub fn get_dy(&self) -> &Col<E> {
+        &self.dy
+    }
+
+    pub fn get_dz_l(&self) -> &Col<E> {
+        &self.dz_l
+    }
+
+    pub fn get_dz_u(&self) -> &Col<E> {
+        &self.dz_u
     }
 }
 
