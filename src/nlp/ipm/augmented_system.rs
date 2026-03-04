@@ -1,8 +1,10 @@
 use faer::{
     Col,
+    prelude::ReborrowMut,
     sparse::{SparseColMat, SymbolicSparseColMat},
 };
 use macros::explicit_options;
+use problemo::Problem;
 
 use crate::{
     E, I, SearchDirection, SolverOptions, SolverState,
@@ -27,9 +29,9 @@ pub trait AugmentedSystem<'a, LinSolve: LinearSolver> {
     /// # Returns
     ///
     /// The solution vector of the augmented system.
-    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection;
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem>;
 
-    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection;
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem>;
 }
 
 #[explicit_options(name = SolverOptions)]
@@ -40,7 +42,7 @@ pub struct StandardSystem<'a, LinSolve: LinearSolver> {
 }
 
 impl<'a, LinSolve: LinearSolver> StandardSystem<'a, LinSolve> {
-    fn assemble_matrix(&mut self, state: &SolverState, rhs: &RHS) -> SparseColMat<I, E> {
+    fn assemble_matrix(&mut self, state: &SolverState) -> SparseColMat<I, E> {
         // Assemble the augmented system matrix based on the current state and the problem data
         // This typically involves computing the Hessian of the Lagrangian and the Jacobian of the constraints
         let xl_inv = {
@@ -70,7 +72,7 @@ impl<'a, LinSolve: LinearSolver> StandardSystem<'a, LinSolve> {
             &h_zero
         };
 
-        let dg = (&self.nlp.dg)(&state.x);
+        let dg = state.dg.as_ref().unwrap();
 
         let mat_nnz = h.compute_nnz() + dg.compute_nnz() * 2 + self.nlp.n_var; // Hessian + Jacobian + diagonal
 
@@ -169,9 +171,9 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
         }
     }
 
-    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection {
+    fn solve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem> {
         // Matrix may change at each iteration, due to nonlinearity. The entire system matrix must be reconstructed each time.
-        let mat = self.assemble_matrix(state, rhs);
+        let mat = self.assemble_matrix(state);
 
         // Check if the matrix has changed sufficiently
         // In a real implementation, we would want to be more sophisticated about when to refactor the matrix
@@ -207,7 +209,59 @@ impl<'a, LinSolve: LinearSolver> AugmentedSystem<'a, LinSolve> for StandardSyste
         self.resolve(state, rhs)
     }
 
-    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> SearchDirection {
-        todo!()
+    fn resolve(&mut self, state: &SolverState, rhs: &RHS) -> Result<SearchDirection, Problem> {
+        let (n_var, n_cons) = (self.nlp.n_var, self.nlp.n_cons);
+        let (r_d, r_c, r_l, r_u) = (rhs.r_d(), rhs.r_c(), rhs.r_l(), rhs.r_u());
+
+        let mu = state.mu.unwrap();
+
+        let xl_inv = {
+            if let Some(l) = &self.nlp.l {
+                cwise_inverse((&state.x - l).as_ref())
+            } else {
+                cwise_inverse(state.x.as_ref())
+            }
+        };
+        let xu_inv = {
+            if let Some(u) = &self.nlp.u {
+                cwise_inverse((&state.x - u).as_ref())
+            } else {
+                Col::<E>::zeros(state.x.nrows())
+            }
+        };
+
+        let mut rhs_vec = Col::<E>::zeros(n_var + n_cons);
+        let (mut rhs_dual, mut rhs_primal) = rhs_vec.split_at_row_mut(n_var);
+        rhs_dual.copy_from(
+            r_d + cwise_multiply(xl_inv.as_ref(), r_l.as_ref())
+                + cwise_multiply(xu_inv.as_ref(), r_u.as_ref())
+                + mu * (&xl_inv + &xu_inv),
+        );
+        rhs_primal.copy_from(r_c.as_ref());
+
+        let solution = {
+            let sol = self.solver.solve(rhs_vec.as_mat().as_ref())?;
+            sol.col(0).to_owned()
+        };
+        let (dx, dy) = solution.split_at_row(n_var);
+        let dz_l = mu * xl_inv.as_ref()
+            - cwise_multiply(
+                cwise_multiply(xl_inv.as_ref(), state.z_l.as_ref()).as_ref(),
+                dx.as_ref(),
+            )
+            + cwise_multiply(xl_inv.as_ref(), r_l.as_ref());
+        let dz_u = mu * xu_inv.as_ref()
+            - cwise_multiply(
+                cwise_multiply(xu_inv.as_ref(), state.z_u.as_ref()).as_ref(),
+                dx.as_ref(),
+            )
+            + cwise_multiply(xu_inv.as_ref(), r_u.as_ref());
+
+        Ok(SearchDirection {
+            dx: dx.to_owned(), // Placeholder
+            dy: dy.to_owned(), // Placeholder
+            dz_l,              // Placeholder
+            dz_u,              // Placeholder
+        })
     }
 }

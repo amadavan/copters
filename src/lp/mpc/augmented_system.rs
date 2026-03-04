@@ -1,5 +1,5 @@
 use faer::{
-    col::generic::Col,
+    Col,
     prelude::ReborrowMut,
     sparse::{SparseColMat, SymbolicSparseColMat},
 };

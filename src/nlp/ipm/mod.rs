@@ -78,6 +78,11 @@ impl<
 > InteriorPointMethod<'a, LinSolve, AS, MU, LS>
 {
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {
+        // Update function evaluations and derivatives at the current iterate
+        state.df = Some(self.nlp.df(&state.x));
+        state.g = Some(self.nlp.g(&state.x));
+        state.dg = Some(self.nlp.dg(&state.x));
+
         // Update hessian
         if let Some(h) = &self.nlp.h {
             state.h = Some((h)(&state.x, &state.y));
@@ -89,7 +94,7 @@ impl<
         // Compute search direction
         // Affine scaling direction (predictor step)
         let mut rhs = RHS::from(&*state);
-        let step_aff = self.augmented_system.solve(state, &rhs);
+        let step_aff = self.augmented_system.solve(state, &rhs)?;
         let alpha_aff = self.line_search.perform_line_search(state, &step_aff);
 
         let mut state_aff = state.clone();
@@ -103,7 +108,7 @@ impl<
         *rhs.r_l_mut() += state_aff.mu.unwrap() * &ones;
         *rhs.r_u_mut() += state_aff.mu.unwrap() * &ones;
 
-        let step_cen = self.augmented_system.solve(state, &rhs);
+        let step_cen = self.augmented_system.solve(state, &rhs)?;
 
         // Corrector step
         *rhs.r_l_mut() -=
@@ -111,7 +116,7 @@ impl<
         *rhs.r_u_mut() -=
             cwise_multiply_finite(step_aff.get_dz_u().as_ref(), step_aff.get_dx().as_ref());
 
-        let step_corr = self.augmented_system.solve(state, &rhs);
+        let step_corr = self.augmented_system.solve(state, &rhs)?;
 
         // See if we get an acceptable trial point from the line search
         // and iterate till we find one
