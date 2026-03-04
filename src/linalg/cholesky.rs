@@ -34,6 +34,7 @@
 //! let b = faer::Mat::from_fn(n, 1, |i, _| i as E);
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
+use faer::MatMut;
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::linalg::cholesky::ldlt::factor::LdltRegularization;
 use faer::perm::{Perm, PermRef};
@@ -46,7 +47,6 @@ use faer::sparse::linalg::cholesky::supernodal::{
     self, SupernodalLdltRef, SymbolicSupernodalCholesky,
 };
 use faer::sparse::{SparseColMat, SparseColMatRef, SymbolicSparseColMat};
-use faer::{Mat, MatMut, MatRef};
 use problemo::{Problem, ProblemResult};
 
 use crate::linalg::solver::{LinearSolver, LinearSolverError, Solver, SymmetricLinearSolver};

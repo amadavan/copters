@@ -44,7 +44,7 @@ fn unpack_optrove(tar_gz: &[u8], target_dir: String) -> Result<(), Problem> {
 }
 
 #[allow(unused)]
-fn download_maros_mezaros_qp() -> Result<(), Problem> {
+pub fn download_maros_mezaros_qp() -> Result<(), Problem> {
     let filename = "marosmezaros.tar.gz";
     if !Path::new(&format!("{}/{}", crate::get_cache_dir(), filename)).exists() {
         // Download the tar file
@@ -62,7 +62,7 @@ fn download_maros_mezaros_qp() -> Result<(), Problem> {
 }
 
 #[allow(unused)]
-fn download_netlib_lp() -> Result<(), Problem> {
+pub fn download_netlib_lp() -> Result<(), Problem> {
     let filename = "netlib.tar.gz";
     if !Path::new(&format!("{}/{}", crate::get_cache_dir(), filename)).exists() {
         // Download the tar file

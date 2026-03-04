@@ -56,10 +56,10 @@ impl Callback for ConvergenceOutput {
             state.nit,
             state.alpha_primal,
             state.alpha_dual,
-            state.get_primal_infeasibility().norm_l2() / state.x.nrows() as E,
-            state.get_dual_infeasibility().norm_l2() / state.x.nrows() as E,
-            state.get_complimentary_slack_lower().norm_l2() / state.x.nrows() as E,
-            state.get_complimentary_slack_upper().norm_l2() / state.x.nrows() as E,
+            state.get_primal_feasibility().norm_l2() / state.x.nrows() as E,
+            state.get_dual_feasibility().norm_l2() / state.x.nrows() as E,
+            state.get_cs_lower().norm_l2() / state.x.nrows() as E,
+            state.get_cs_upper().norm_l2() / state.x.nrows() as E,
         );
         println!("{txt}");
     }
@@ -71,7 +71,7 @@ impl Callback for ConvergenceOutput {
 
 #[enum_dispatch(Callback)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Callbacks {
+pub enum Callbacks {
     NoOp(NoOpCallback),
     ConvergenceOutput(ConvergenceOutput),
 }
@@ -86,12 +86,14 @@ impl MultiCallback {
         Self { callbacks }
     }
 
+    #[allow(unused)]
     pub fn new_empty() -> Self {
         Self {
             callbacks: Vec::new(),
         }
     }
 
+    #[allow(unused)]
     pub fn add_callback(&mut self, callback: Callbacks) {
         self.callbacks.push(callback);
     }

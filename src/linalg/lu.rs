@@ -33,13 +33,13 @@
 //! let x = solver.solve(b.as_ref()).unwrap();
 //! ```
 
+use faer::MatMut;
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::perm::Perm;
 use faer::prelude::{Reborrow, ReborrowMut};
 use faer::sparse::SparseColMatRef;
 use faer::sparse::linalg::colamd;
 use faer::sparse::linalg::lu::simplicial::{self, SimplicialLu};
-use faer::{Mat, MatMut, MatRef};
 use problemo::{Problem, ProblemResult};
 
 use crate::linalg::solver::{LinearSolver, LinearSolverError, Solver};

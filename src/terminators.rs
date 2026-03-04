@@ -57,7 +57,7 @@ pub struct InterruptTerminator {
 }
 
 impl InterruptTerminator {
-    pub fn new(options: &SolverOptions) -> Self {
+    pub fn new(_options: &SolverOptions) -> Self {
         Self {
             interrupted: Arc::new(AtomicBool::new(false)),
         }
@@ -142,9 +142,8 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_infeasibility().norm_l2()
-            <= self.options.tolerance * state.x.nrows() as E
-            && state.get_dual_infeasibility().norm_l2()
+        if state.get_primal_feasibility().norm_l2() <= self.options.tolerance * state.x.nrows() as E
+            && state.get_dual_feasibility().norm_l2()
                 <= self.options.tolerance * state.y.nrows() as E
         {
             Some(Status::Optimal)
@@ -178,9 +177,8 @@ impl Terminator for SlowProgressTerminator {
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
         if let Some(prev) = &self.prev_state {
             let primal_diff =
-                (state.get_primal_infeasibility() - prev.get_primal_infeasibility()).norm_l2();
-            let dual_diff =
-                (state.get_dual_infeasibility() - prev.get_dual_infeasibility()).norm_l2();
+                (state.get_primal_feasibility() - prev.get_primal_feasibility()).norm_l2();
+            let dual_diff = (state.get_dual_feasibility() - prev.get_dual_feasibility()).norm_l2();
             if primal_diff <= self.options.slow_progress_tolerance
                 && dual_diff <= self.options.slow_progress_tolerance
             {

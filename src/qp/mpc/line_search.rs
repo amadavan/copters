@@ -1,15 +1,14 @@
 use faer::{unzip, zip};
 
 use crate::{
-    E, SolverOptions, SolverState,
-    qp::{QuadraticProgram, mpc::Step},
+    E, SearchDirection, SolverOptions, SolverState, qp::{QuadraticProgram}
 };
 
 pub fn compute_max_step_length<'a>(
     qp: &'a QuadraticProgram,
     _options: &SolverOptions,
     state: &SolverState,
-    step: &Step,
+    step: &SearchDirection,
 ) -> (E, E) {
     let xl = &state.x - &qp.l;
     let xu = &state.x - &qp.u;

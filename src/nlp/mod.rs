@@ -8,7 +8,7 @@ use macros::use_option;
 use problemo::{Problem, common::IntoCommonProblem};
 
 use crate::{
-    E, I, OptimizationProgram, OptionTrait, Residual, Solver, SolverOptions, SolverState,
+    E, I, OptimizationProgram, OptionTrait, Solver, SolverOptions, SolverState,
     linalg::vector_ops::cwise_multiply_finite,
 };
 
@@ -145,23 +145,19 @@ impl NonlinearProgram {
 }
 
 impl OptimizationProgram for NonlinearProgram {
-    fn compute_residual(&self, state: &SolverState) -> Residual {
+    fn update_residual(&self, state: &mut SolverState) {
         let (x, y, z_l, z_u) = (&state.x, &state.y, &state.z_l, &state.z_u);
         let zero = Col::<E>::zeros(self.n_var);
         let inf = E::INFINITY * Col::<E>::ones(self.n_var);
         let (l, u) = (self.l().unwrap_or(&zero), self.u().unwrap_or(&inf));
 
-        // Compute the residuals based on the current state
-        Residual {
-            // Dual feasibility: grad_f(x) - grad_g(x)^T y - z_l - z_u
-            dual_feasibility: -self.df(x)
-                + self.dg(x).transpose() * &state.y
-                + &state.z_l
-                + &state.z_u,
-            primal_feasibility: self.g(x),
-            cs_lower: -cwise_multiply_finite(state.z_l.as_ref(), (x - l).as_ref()),
-            cs_upper: -cwise_multiply_finite(state.z_u.as_ref(), (x - u).as_ref()),
-        }
+        state.dual_feasibility = -self.df(x)
+                + self.dg(x).transpose() * y
+                + z_l
+                + z_u;
+        state.primal_feasibility = self.g(x);
+        state.cs_lower = -cwise_multiply_finite(z_l.as_ref(), (x - l).as_ref());
+        state.cs_upper = -cwise_multiply_finite(z_u.as_ref(), (x - u).as_ref());
     }
 }
 

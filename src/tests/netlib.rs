@@ -12,7 +12,7 @@
 //!   finite lower/upper bound vectors.
 
 use faer::Col;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use rstest_reuse::{apply, template};
 
 use crate::{
@@ -21,8 +21,16 @@ use crate::{
     interface::sif::TryFromSIF,
     lp::{LPSolverType, LinearProgram},
     qp::{QPSolverType, QuadraticProgram},
-    terminators::{ConvergenceTerminator, Terminator},
+    terminators::ConvergenceTerminator,
 };
+
+#[fixture]
+fn download_cases() -> &'static () {
+    static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        loaders::sif::download_netlib_lp().unwrap();
+    })
+}
 
 #[template]
 #[rstest]
@@ -126,6 +134,7 @@ pub fn netlib_cases(
 
 #[apply(netlib_cases)]
 fn lp(
+    _download_cases: &(),
     case_name: &str,
     #[values(
         LPSolverType::MpcSimplicialCholesky,
