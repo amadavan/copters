@@ -1,3 +1,4 @@
+use crate::get_cache_dir;
 use problemo::{Problem, common::IntoCommonProblem};
 use sif_rs::SIF;
 use std::{io::Read, path::Path};
@@ -46,15 +47,15 @@ fn unpack_optrove(tar_gz: &[u8], target_dir: String) -> Result<(), Problem> {
 #[allow(unused)]
 pub fn download_maros_mezaros_qp() -> Result<(), Problem> {
     let filename = "marosmezaros.tar.gz";
-    if !Path::new(&format!("{}/{}", crate::get_cache_dir(), filename)).exists() {
+    if !Path::new(&format!("{}/{}", get_cache_dir(), filename)).exists() {
         // Download the tar file
         let tar_gz = download_http(MAROS_MEZAROS_QP_TAR_URL)?;
-        std::fs::create_dir_all(format!("{}", crate::get_cache_dir()))?;
-        std::fs::write(format!("{}/{}", crate::get_cache_dir(), filename), &tar_gz)?;
+        std::fs::create_dir_all(format!("{}", get_cache_dir()))?;
+        std::fs::write(format!("{}/{}", get_cache_dir(), filename), &tar_gz)?;
     }
-    let tar_gz = std::fs::read(format!("{}/{}", crate::get_cache_dir(), filename))?;
+    let tar_gz = std::fs::read(format!("{}/{}", get_cache_dir(), filename))?;
 
-    let target_dir = format!("{}/{}", crate::get_cache_dir(), "maros_mezaros");
+    let target_dir = format!("{}/{}", get_cache_dir(), "maros_mezaros");
     std::fs::create_dir_all(&target_dir)?;
     unpack_optrove(&tar_gz, target_dir)?;
 
@@ -64,15 +65,15 @@ pub fn download_maros_mezaros_qp() -> Result<(), Problem> {
 #[allow(unused)]
 pub fn download_netlib_lp() -> Result<(), Problem> {
     let filename = "netlib.tar.gz";
-    if !Path::new(&format!("{}/{}", crate::get_cache_dir(), filename)).exists() {
+    if !Path::new(&format!("{}/{}", get_cache_dir(), filename)).exists() {
         // Download the tar file
         let tar_gz = download_http(NETLIB_LP_TAR_URL)?;
-        std::fs::create_dir_all(format!("{}", crate::get_cache_dir()))?;
-        std::fs::write(format!("{}/{}", crate::get_cache_dir(), filename), &tar_gz)?;
+        std::fs::create_dir_all(format!("{}", get_cache_dir()))?;
+        std::fs::write(format!("{}/{}", get_cache_dir(), filename), &tar_gz)?;
     }
-    let tar_gz = std::fs::read(format!("{}/{}", crate::get_cache_dir(), filename))?;
+    let tar_gz = std::fs::read(format!("{}/{}", get_cache_dir(), filename))?;
 
-    let target_dir = format!("{}/{}", crate::get_cache_dir(), "netlib");
+    let target_dir = format!("{}/{}", get_cache_dir(), "netlib");
     std::fs::create_dir_all(&target_dir)?;
     unpack_optrove(&tar_gz, target_dir)?;
 
@@ -85,7 +86,7 @@ pub mod netlib {
     pub fn get_case(case_name: &str) -> Result<SIF, Problem> {
         let file_path = format!(
             "{}/netlib/{}.SIF",
-            crate::get_cache_dir(),
+            get_cache_dir(),
             case_name.to_uppercase()
         );
         if !Path::new(&file_path).exists() {
@@ -110,7 +111,7 @@ pub mod maros_mezaros {
     pub fn get_case(case_name: &str) -> Result<SIF, Problem> {
         let file_path = format!(
             "{}/maros_mezaros/{}.SIF",
-            crate::get_cache_dir(),
+            get_cache_dir(),
             case_name.to_uppercase()
         );
         if !Path::new(&file_path).exists() {
@@ -193,7 +194,7 @@ mod tests {
             maros_mezaros::get_case(&case_name).expect("Failed to get Maros-Mezaros QP dataset");
 
         // Verify that the expected files are present
-        let maros_mezaros_dir = format!("{}/maros_mezaros", crate::get_cache_dir());
+        let maros_mezaros_dir = format!("{}/maros_mezaros", get_cache_dir());
         let expected_file =
             std::path::Path::new(&maros_mezaros_dir).join(format!("{}.SIF", case_name));
         assert!(
@@ -209,7 +210,7 @@ mod tests {
         netlib::get_case(&case_name).expect("Failed to get Netlib LP dataset");
 
         // Verify that the expected files are present
-        let netlib_dir = format!("{}/netlib", crate::get_cache_dir());
+        let netlib_dir = format!("{}/netlib", get_cache_dir());
         let expected_file = std::path::Path::new(&netlib_dir).join(format!("{}.SIF", case_name));
         assert!(
             expected_file.exists(),

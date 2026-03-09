@@ -2,6 +2,8 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use serde::Deserialize;
 
+use crate::get_data_dir;
+
 #[derive(Debug, Deserialize)]
 pub struct MetaData {
     name: String,
@@ -45,7 +47,7 @@ impl MetaData {
 
 pub static NETLIB_CASE_DATA: LazyLock<HashMap<String, MetaData>> = LazyLock::new(|| {
     let mut case_data = HashMap::new();
-    let csv_path = format!("{}/netlib.csv", crate::get_data_dir());
+    let csv_path = format!("{}/netlib.csv", get_data_dir());
     let mut rdr = csv::ReaderBuilder::new()
         .comment(Some(b'#'))
         .from_path(&csv_path)
