@@ -25,7 +25,7 @@ Copters is designed to be a comprehensive optimization toolkit for Rust, offerin
 - [ ] **Conjugate Gradient** - For quadratic and nonlinear optimization
 
 #### Nonlinear Optimization
-- [ ] **Proximal Gradient Descent** - First-order optimization method
+- [x] **Proximal Gradient Descent** - First-order optimization method
 - [ ] **Accelerated Gradient Descent** - Nesterov and momentum-based methods
 - [ ] **Stochastic Gradient Descent** - For problems with uncertainty (stochastic programs)
 - [ ] **Interior Point Method** - For nonlinear programs with constraints
@@ -102,6 +102,5 @@ Avinash Madavan - avinash.madavan@gmail.com
 
 Project Link: [https://github.com/amadavan/copters](https://github.com/amadavan/copters)
 
-## AI Disclosure
-
-This project makes limited use of AI-assisted tooling. AI is employed for debugging assistance, boilerplate generation, and drafting documentation. All algorithm design, core implementation, and architectural decisions are made by the author. AI-generated content is reviewed before inclusion.
+<!-- > [!NOTE] -->
+> **AI Disclosure:** This project makes limited use of AI-assisted tooling. AI is employed for debugging assistance, boilerplate generation, and drafting documentation. All algorithm design, core implementation, and architectural decisions are made by the author. AI-generated content is reviewed before inclusion.

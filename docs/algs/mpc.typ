@@ -12,7 +12,7 @@ $
   & bold(c) - bold(A)^T bold(y) - underline(bold(z)) + overline(bold(z)) = 0, \
   & (bold(X) - underline(bold(X))) underline(bold(Z)) bold(e) = sigma mu bold(e), \
   & (overline(bold(X)) - bold(X)) overline(bold(Z)) bold(e) = sigma mu bold(e), \
-$
+$ <eq.mpc.system>
 where $bold(e)$ is the vector of all ones, and the matrices $bold(X)$, $underline(bold(X))$, $overline(bold(X))$, $underline(bold(Z))$, and $overline(bold(Z))$ are diagonal matrices with the elements of the corresponding vectors on their diagonals. The parameter $mu$ is used to ensure positivity of complimentary slackness conditions. It can be seen that this is equivalent to @eq.lp.kkt for $mu = 0$.
 
 The Mehrotra Predictor-Corrector algorithm aims to solve a linearization of the above system, while simultaneosly driving $mu$ to zero. The linearization is given by:

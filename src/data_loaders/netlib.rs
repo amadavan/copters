@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use serde::Deserialize;
 
-use crate::get_data_dir;
+use crate::utils::io::get_data_dir;
 
 #[derive(Debug, Deserialize)]
 pub struct MetaData {

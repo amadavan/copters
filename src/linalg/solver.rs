@@ -85,7 +85,7 @@ mod tests {
     use crate::linalg::{
         cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
         lu::SimplicialSparseLu,
-        solver::{LinearSolver},
+        solver::LinearSolver,
     };
     use faer::rand::SeedableRng;
     use faer::rand::rngs::StdRng;
@@ -93,11 +93,13 @@ mod tests {
     use faer::stats::prelude::{CwiseMatDistribution, StandardNormal};
     use rstest::rstest;
 
+    use crate::data_loaders::mtx;
+
     use super::*;
 
     fn test_solver(mat_name: &str, solver: &mut impl LinearSolver) {
         const N_COUNT: usize = 10;
-        let mat = loaders::mtx::get_matrix_by_name::<I, E>(mat_name, true);
+        let mat = mtx::get_matrix_by_name::<I, E>(mat_name, true);
 
         solver.analyze(mat.as_ref()).unwrap();
         solver.factorize(mat.as_ref()).unwrap();
@@ -130,7 +132,7 @@ mod tests {
         #[values(
             SimplicialSparseCholesky::new(),
             SupernodalSparseCholesky::new(),
-            SimplicialSparseLu::new(),
+            SimplicialSparseLu::new()
         )]
         mut solver: impl LinearSolver,
     ) {
@@ -139,17 +141,15 @@ mod tests {
 
     #[cfg(feature = "mkl")]
     #[rstest]
-    fn test_mtx_mkl(#[values("Trefethen 20b")] mat_name: &str,) {
+    fn test_mtx_mkl(#[values("Trefethen 20b")] mat_name: &str) {
         let solver = pardiso::MKLPardiso::new();
         test_solver(mat_name, solver);
     }
 
     #[cfg(feature = "panua")]
     #[rstest]
-    fn test_mtx_panua(#[values("Trefethen 20b")] mat_name: &str,) {
+    fn test_mtx_panua(#[values("Trefethen 20b")] mat_name: &str) {
         let solver = pardiso::PanuaSolver::new();
         test_solver(mat_name, solver);
     }
-
-
 }

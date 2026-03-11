@@ -33,6 +33,10 @@ pub mod nlp;
 pub mod qp;
 pub mod stochastic;
 pub mod terminators;
+pub mod utils;
+
+#[cfg(feature = "data-loaders")]
+pub mod data_loaders;
 
 #[cfg(test)]
 pub mod tests;
