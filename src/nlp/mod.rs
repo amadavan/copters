@@ -163,7 +163,7 @@ impl OptimizationProgram for NonlinearProgram {
     }
 }
 
-pub trait NLPSolver<'a>: Solver {
+pub trait NLPSolver<'a>: IterativeSolver {
     fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self
     where
         Self: Sized;

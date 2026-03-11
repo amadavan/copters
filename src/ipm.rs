@@ -2,6 +2,8 @@ use faer::Col;
 
 use crate::{E, SolverState};
 
+pub(crate) const DEFAULT_MAX_ITERATIONS: usize = 1000;
+
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RHS {
