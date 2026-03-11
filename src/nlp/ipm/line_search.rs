@@ -40,7 +40,7 @@ impl<'a> LineSearch<'a> for BacktrackingLineSearch<'a> {
         }
     }
 
-    fn perform_line_search(&self, state: &SolverState, search_direction: &SearchDirection) -> E {
+    fn perform_line_search(&self, _state: &SolverState, _search_direction: &SearchDirection) -> E {
         // Implement the backtracking line search logic here
         // This typically involves starting with an initial step size and iteratively reducing it until a certain condition is met
 

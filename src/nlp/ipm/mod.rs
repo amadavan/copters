@@ -43,7 +43,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, IterativeSolver, OptimizationProgram, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, IterativeSolver, OptimizationProgram, SolverOptions, SolverState, Status,
     ipm::RHS,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     nlp::{
@@ -77,7 +77,7 @@ impl<
     LS: LineSearch<'a>,
 > InteriorPointMethod<'a, LinSolve, AS, MU, LS>
 {
-    fn initialize(&mut self, state: &mut SolverState) {}
+    fn initialize(&mut self, _state: &mut SolverState) {}
 
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {
         // Update function evaluations and derivatives at the current iterate

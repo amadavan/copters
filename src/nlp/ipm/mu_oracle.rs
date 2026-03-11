@@ -11,7 +11,7 @@ pub trait MuOracle {
 pub struct LoquMuOracle;
 
 impl MuOracle for LoquMuOracle {
-    fn compute_mu(&mut self, state: &SolverState) -> E {
+    fn compute_mu(&mut self, _state: &SolverState) -> E {
         // Implement the logic to compute mu based on the current state
         // This could involve using the complementarity conditions, residuals, or other metrics
 
@@ -23,7 +23,7 @@ impl MuOracle for LoquMuOracle {
 pub struct ProbingMuOracle;
 
 impl MuOracle for ProbingMuOracle {
-    fn compute_mu(&mut self, state: &SolverState) -> E {
+    fn compute_mu(&mut self, _state: &SolverState) -> E {
         // Implement the logic to compute mu based on the current state
         // This could involve using the complementarity conditions, residuals, or other metrics
 
@@ -35,7 +35,7 @@ impl MuOracle for ProbingMuOracle {
 pub struct QualityFunctionMuOracle;
 
 impl MuOracle for QualityFunctionMuOracle {
-    fn compute_mu(&mut self, state: &SolverState) -> E {
+    fn compute_mu(&mut self, _state: &SolverState) -> E {
         // Implement the logic to compute mu based on the current state
         // This could involve using the complementarity conditions, residuals, or other metrics
 

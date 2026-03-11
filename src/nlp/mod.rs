@@ -11,8 +11,7 @@ use crate::{
     E, I, IterativeSolver, OptimizationProgram, OptionTrait, SolverOptions, SolverState,
     linalg::{cholesky::SimplicialSparseCholesky, vector_ops::cwise_multiply_finite},
     nlp::ipm::{
-        augmented_system::{AugmentedSystem, StandardSystem},
-        line_search::PDFeasibileLineSearch,
+        augmented_system::StandardSystem, line_search::PDFeasibileLineSearch,
         mu_update::AdaptiveMuUpdate,
     },
 };

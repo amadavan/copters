@@ -5,8 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, IterativeSolver, OptimizationProgram, SolverHooks, SolverOptions, SolverState, Status,
-    ipm,
+    E, I, IterativeSolver, OptimizationProgram, SolverOptions, SolverState, Status, ipm,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
 };
 

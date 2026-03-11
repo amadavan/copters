@@ -1,5 +1,5 @@
 use crate::utils::io::get_cache_dir;
-use problemo::{Problem, ProblemResult, common::IntoCommonProblem};
+use problemo::{Problem, common::IntoCommonProblem};
 use sif_rs::SIF;
 use std::{io::Read, path::Path, sync::LazyLock};
 

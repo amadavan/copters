@@ -5,7 +5,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, OptimizationProgram, SearchDirection, IterativeSolver, SolverHooks, SolverOptions, SolverState,
+    E, I, IterativeSolver, OptimizationProgram, SearchDirection, SolverOptions, SolverState,
     Status,
     ipm::{self, RHS},
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
@@ -126,8 +126,8 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     }
 }
 
-impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> IterativeSolver
-    for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>>
+    IterativeSolver for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
     fn get_max_iterations(&self) -> usize {
         if self.options.max_iterations as usize > 0 {

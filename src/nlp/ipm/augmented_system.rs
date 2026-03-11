@@ -1,6 +1,5 @@
 use faer::{
     Col,
-    prelude::ReborrowMut,
     sparse::{SparseColMat, SymbolicSparseColMat},
 };
 use macros::explicit_options;

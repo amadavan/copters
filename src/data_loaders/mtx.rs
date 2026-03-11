@@ -137,7 +137,6 @@ pub fn get_matrix_by_name<I: Index + std::convert::From<usize>, E: ComplexField>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use faer::prelude::*;
     use rstest::rstest;
 
     #[rstest]

@@ -5,8 +5,8 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, IterativeSolver, OptimizationProgram, SearchDirection, SolverHooks, SolverOptions,
-    SolverState, Status,
+    E, I, IterativeSolver, OptimizationProgram, SearchDirection, SolverOptions, SolverState,
+    Status,
     ipm::{self, RHS},
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     lp::{

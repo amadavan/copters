@@ -98,7 +98,7 @@ pub trait IterativeSolver {
 
     fn get_max_iterations(&self) -> usize;
 
-    fn initialize(&mut self, state: &mut SolverState) {
+    fn initialize(&mut self, _state: &mut SolverState) {
         // Default implementation does nothing, but can be overridden by specific solvers
     }
 
