@@ -75,4 +75,4 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test lpopt
-        run: cargo test --verbose -- --test-threads=1
+        run: cargo test --verbose
