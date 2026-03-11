@@ -25,16 +25,15 @@ serde = { version = "1.0.228", features = ["derive"] }
 
 pardiso-wrapper = { version = "0.1.2", optional = true }
 
-csv = { version = "1.4.0", optional = true}
-flate2 = { version = "1.1.8", optional = true}
-indicatif = { version = "0.18.4", optional = true}
-libc = { version = "0.2.182", optional = true}
-matrix-market-rs = { version ="0.1.3", optional = true}
+csv = { version = "1.4.0", optional = true }
+flate2 = { version = "1.1.8", optional = true }
+indicatif = { version = "0.18.4", optional = true }
+libc = { version = "0.2.182", optional = true }
+matrix-market-rs = { version = "0.1.3", optional = true }
 reqwest = { version = "0.13.1", features = ["blocking"], optional = true }
 sif-rs = { version = "0.9.3", optional = true }
 tar = { version = "0.4.44", optional = true }
 tempfile = { version = "3.26.0", optional = true }
-cc = "1.2.56"
 
 
 [dev-dependencies]
@@ -49,14 +48,29 @@ pardiso = ["dep:pardiso-wrapper"]
 panua = ["pardiso", "pardiso-wrapper/panua"]
 mkl = ["pardiso", "pardiso-wrapper/mkl"]
 
-data-loaders = ["dep:csv", "dep:flate2", "dep:indicatif", "dep:libc", "dep:matrix-market-rs", "dep:reqwest", "dep:sif-rs", "dep:tar", "dep:tempfile"]
+data-loaders = [
+    "dep:csv",
+    "dep:flate2",
+    "dep:indicatif",
+    "dep:libc",
+    "dep:matrix-market-rs",
+    "dep:reqwest",
+    "dep:sif-rs",
+    "dep:tar",
+    "dep:tempfile",
+]
 
 # For testing ctrl+c interrupt events
 [target.'cfg(unix)'.dev-dependencies]
-nix = { version = "0.30.0", default-features = false, features = ["signal"]}
+nix = { version = "0.30.0", default-features = false, features = ["signal"] }
 
 [target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_IO", "Win32_System_Console"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_System_IO",
+    "Win32_System_Console",
+] }
 
 [[bench]]
 name = "bench"

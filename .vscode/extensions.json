@@ -1,0 +1,18 @@
+{
+    "recommendations": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpp-devtools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cpptools-themes",
+        "anthropic.claude-code",
+        "fill-labs.dependi",
+        "tamasfe.even-better-toml",
+        "github.copilot-chat",
+        "rust-lang.rust-analyzer",
+        "ms-python.vscode-python-envs",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "myriad-dreamin.tinymist"
+    ]
+}
