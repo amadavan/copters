@@ -43,7 +43,7 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, IterativeSolver, OptimizationProgram, SolverHooks, SolverOptions, SolverState, Status,
     ipm::RHS,
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     nlp::{
@@ -77,6 +77,8 @@ impl<
     LS: LineSearch<'a>,
 > InteriorPointMethod<'a, LinSolve, AS, MU, LS>
 {
+    fn initialize(&mut self, state: &mut SolverState) {}
+
     fn iterate(&mut self, state: &mut SolverState) -> Result<(), Problem> {
         // Update function evaluations and derivatives at the current iterate
         state.df = Some(self.nlp.df(&state.x));
@@ -174,52 +176,26 @@ impl<
     AS: AugmentedSystem<'a, LinSolve>,
     MU: MuUpdate,
     LS: LineSearch<'a>,
-> Solver for InteriorPointMethod<'a, LinSolve, AS, MU, LS>
+> IterativeSolver for InteriorPointMethod<'a, LinSolve, AS, MU, LS>
 {
-    fn solve(
-        &mut self,
-        state: &mut SolverState,
-        hooks: &mut SolverHooks,
-    ) -> Result<Status, Problem> {
-        hooks.callback.init(state);
-        // self.initialize(state);
-        self.nlp.update_residual(state);
-
-        state.nit = 0;
-        state.status = Status::InProgress;
-
-        let max_iter = {
-            if self.options.max_iterations > 0 {
-                self.options.max_iterations as usize
-            } else {
-                1e1 as usize // Default to a large number if not set
-            }
-        };
-        for iter in 0..max_iter {
-            state.nit = iter;
-            self.iterate(state)?;
-
-            let status = state.status;
-            if status != Status::InProgress {
-                println!(
-                    "Converged in {} iterations with status: {:?}",
-                    iter + 1,
-                    status
-                );
-                return Ok(status);
-            }
-
-            hooks.callback.call(state);
-            if let Some(terminator_status) = hooks.terminator.terminate(state) {
-                println!(
-                    "Terminated in {} iterations with status: {:?}",
-                    iter + 1,
-                    terminator_status
-                );
-                return Ok(terminator_status);
-            }
+    fn get_max_iterations(&self) -> usize {
+        if self.options.max_iterations > 0 {
+            self.options.max_iterations as usize
+        } else {
+            1e2 as usize // Default to a large number if not set
         }
-        println!("Reached maximum iterations without convergence.");
-        Ok(Status::IterationLimit)
+    }
+
+    fn get_program(&self) -> &dyn OptimizationProgram {
+        self.nlp
+    }
+
+    fn initialize(&mut self, state: &mut SolverState) {
+        self.initialize(state);
+    }
+
+    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
+        self.iterate(state)?;
+        Ok(state.status)
     }
 }

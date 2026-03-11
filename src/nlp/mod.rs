@@ -8,7 +8,7 @@ use macros::use_option;
 use problemo::{Problem, common::IntoCommonProblem};
 
 use crate::{
-    E, I, OptimizationProgram, OptionTrait, Solver, SolverOptions, SolverState,
+    E, I, IterativeSolver, OptimizationProgram, OptionTrait, SolverOptions, SolverState,
     linalg::{cholesky::SimplicialSparseCholesky, vector_ops::cwise_multiply_finite},
     nlp::ipm::{
         augmented_system::{AugmentedSystem, StandardSystem},
@@ -258,9 +258,7 @@ impl<'a> NLPSolverBuilder<'a> {
 mod tests {
     use super::*;
     use crate::lp::tests::build_simple_lp;
-    use crate::{
-        I, SolverHooks, Status, callback::ConvergenceOutput, terminators::ConvergenceTerminator,
-    };
+    use crate::{I, SolverHooks, callback::ConvergenceOutput, terminators::ConvergenceTerminator};
     use faer::Col;
     use rstest::rstest;
 
