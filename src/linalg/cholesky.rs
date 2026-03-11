@@ -610,6 +610,8 @@ mod tests {
     use rstest::rstest;
     use rstest_reuse::{apply, template};
 
+    use crate::data_loaders::mtx;
+
     enum SolverType {
         SimplicialCholesky,
         SupernodalCholesky,
@@ -668,7 +670,7 @@ mod tests {
 
     #[apply(test_symmetric_solver_1)]
     fn test_symmetric_solver_trefethan20b(solver_type: SolverType) {
-        let mat = loaders::mtx::get_matrix_by_name("Trefethen 20b", true);
+        let mat = mtx::get_matrix_by_name("Trefethen 20b", true);
         test_symmetric_solver(mat, solver_type, 10);
     }
 }

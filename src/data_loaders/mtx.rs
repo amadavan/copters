@@ -10,6 +10,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 use tempfile::NamedTempFile;
 
+use crate::utils::io::get_cache_dir;
+
 pub static MATRICES_URL_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         (
@@ -59,7 +61,7 @@ pub fn get_matrix_by_name<I: Index + std::convert::From<usize>, E: ComplexField>
     name: &str,
     sym: bool,
 ) -> SparseColMat<I, E> {
-    let cache_dir = format!("{}/artifacts/mtx", env!("CARGO_MANIFEST_DIR"));
+    let cache_dir = format!("{}/mtx", get_cache_dir());
     std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
     let file_name = format!("{}/{}.tar.gz", cache_dir, name);

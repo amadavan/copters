@@ -52,7 +52,7 @@ mod test {
     use rstest::rstest;
     use std::{fs::OpenOptions, io::Write, path::PathBuf};
 
-    use crate::get_cache_dir;
+    use crate::utils::io;
 
     use super::*;
 
@@ -64,7 +64,7 @@ mod test {
     }
 
     fn download_compressed(name: &str) -> Result<PathBuf, Problem> {
-        let cache_dir = get_cache_dir() + "/emps";
+        let cache_dir = format!("{}/emps", io::get_cache_dir());
 
         std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 

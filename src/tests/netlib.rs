@@ -18,6 +18,7 @@ use rstest_reuse::{apply, template};
 use crate::{
     E, SolverHooks, SolverOptions, SolverState,
     callback::ConvergenceOutput,
+    data_loaders,
     interface::sif::TryFromSIF,
     lp::{LPSolverType, LinearProgram},
     qp::{QPSolverType, QuadraticProgram},
@@ -28,7 +29,7 @@ use crate::{
 fn download_cases() -> &'static () {
     static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
-        loaders::sif::download_netlib_lp().unwrap();
+        data_loaders::sif::download_netlib_lp().unwrap();
     })
 }
 
@@ -143,8 +144,8 @@ fn lp(
     )]
     solver_type: LPSolverType,
 ) {
-    let lp =
-        LinearProgram::try_from_sif(&loaders::sif::netlib::get_case(case_name).unwrap()).unwrap();
+    let lp = LinearProgram::try_from_sif(&data_loaders::sif::netlib::get_case(case_name).unwrap())
+        .unwrap();
 
     let mut state = SolverState::new(
         Col::ones(lp.get_n_vars()),
@@ -197,8 +198,9 @@ fn qp(
     )]
     solver_type: QPSolverType,
 ) {
-    let qp = QuadraticProgram::try_from_sif(&loaders::sif::netlib::get_case(case_name).unwrap())
-        .unwrap();
+    let qp =
+        QuadraticProgram::try_from_sif(&data_loaders::sif::netlib::get_case(case_name).unwrap())
+            .unwrap();
 
     let mut state = SolverState::new(
         Col::ones(qp.get_n_vars()),

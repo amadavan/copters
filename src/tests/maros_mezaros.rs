@@ -7,6 +7,7 @@ use rstest_reuse::{apply, template};
 use crate::{
     E, SolverHooks, SolverOptions, SolverState,
     callback::ConvergenceOutput,
+    data_loaders,
     interface::sif::TryFromSIF,
     qp::{QPSolverType, QuadraticProgram},
     terminators::ConvergenceTerminator,
@@ -16,7 +17,7 @@ use crate::{
 fn download_cases() -> &'static () {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
-        loaders::sif::download_maros_mezaros_qp().unwrap();
+        data_loaders::sif::download_maros_mezaros_qp().unwrap();
     })
 }
 
@@ -176,9 +177,10 @@ pub fn maros_mezaros_cases(
 
 #[apply(maros_mezaros_cases)]
 fn qp(_download_cases: &(), case_name: &str, solver_type: QPSolverType) {
-    let qp =
-        QuadraticProgram::try_from_sif(&loaders::sif::maros_mezaros::get_case(case_name).unwrap())
-            .unwrap();
+    let qp = QuadraticProgram::try_from_sif(
+        &data_loaders::sif::maros_mezaros::get_case(case_name).unwrap(),
+    )
+    .unwrap();
 
     let mut state = SolverState::new(
         Col::ones(qp.get_n_vars()),

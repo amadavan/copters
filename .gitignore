@@ -25,6 +25,6 @@ Cargo.lock
 # Added by cargo
 /target
 
-*/artifacts
+artifacts
 
 /docs/rustdocs
