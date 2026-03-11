@@ -13,6 +13,8 @@
         "ms-python.debugpy",
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "myriad-dreamin.tinymist"
+        "myriad-dreamin.tinymist",
+        "tomoki1207.pdf",
+        "davidanson.vscode-markdownlint"
     ]
 }

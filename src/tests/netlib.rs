@@ -246,8 +246,9 @@ fn qp(
 
 #[apply(netlib_cases)]
 fn nlp(case_name: &str, #[values(NLPSolverType::InteriorPointMethod)] solver_type: NLPSolverType) {
-    let qp = QuadraticProgram::try_from_sif(&loaders::sif::netlib::get_case(case_name).unwrap())
-        .unwrap();
+    let qp =
+        QuadraticProgram::try_from_sif(&data_loaders::sif::netlib::get_case(case_name).unwrap())
+            .unwrap();
     let nlp = (&qp).into();
 
     let mut state = SolverState::new(
