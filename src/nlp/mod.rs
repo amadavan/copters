@@ -8,7 +8,7 @@ use macros::use_option;
 use problemo::{Problem, common::IntoCommonProblem};
 
 use crate::{
-    E, I, OptimizationProgram, OptionTrait, Solver, SolverOptions, SolverState,
+    E, I, IterativeSolver, OptimizationProgram, OptionTrait, SolverOptions, SolverState,
     linalg::vector_ops::cwise_multiply_finite,
 };
 
