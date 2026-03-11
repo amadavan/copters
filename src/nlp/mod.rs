@@ -151,17 +151,14 @@ impl OptimizationProgram for NonlinearProgram {
         let inf = E::INFINITY * Col::<E>::ones(self.n_var);
         let (l, u) = (self.l().unwrap_or(&zero), self.u().unwrap_or(&inf));
 
-        state.dual_feasibility = -self.df(x)
-                + self.dg(x).transpose() * y
-                + z_l
-                + z_u;
+        state.dual_feasibility = -self.df(x) + self.dg(x).transpose() * y + z_l + z_u;
         state.primal_feasibility = self.g(x);
         state.cs_lower = -cwise_multiply_finite(z_l.as_ref(), (x - l).as_ref());
         state.cs_upper = -cwise_multiply_finite(z_u.as_ref(), (x - u).as_ref());
     }
 }
 
-pub trait NLPSolver<'a>: Solver {
+pub trait NLPSolver<'a>: IterativeSolver {
     fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self
     where
         Self: Sized;

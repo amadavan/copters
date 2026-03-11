@@ -6,7 +6,7 @@ use crate::{OptimizationProgram, SolverState};
 use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::{
-    E, I, Solver, SolverOptions,
+    E, I, IterativeSolver, SolverOptions,
     linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
     linalg::lu::SimplicialSparseLu,
 };
@@ -128,7 +128,7 @@ impl From<QuadraticProgram> for NonlinearProgram {
 }
 
 /// Trait for solvers that operate on a [`QuadraticProgram`].
-pub trait QPSolver<'a>: Solver {
+pub trait QPSolver<'a>: IterativeSolver {
     /// Creates a new solver instance for the given linear program and options.
     fn new(lp: &'a QuadraticProgram, options: &SolverOptions) -> Self
     where

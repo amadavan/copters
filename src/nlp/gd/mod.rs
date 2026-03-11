@@ -5,7 +5,8 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, OptimizationProgram, Solver, SolverHooks, SolverOptions, SolverState, Status,
+    E, I, IterativeSolver, OptimizationProgram, SolverHooks, SolverOptions, SolverState, Status,
+    ipm,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
 };
 
@@ -88,38 +89,21 @@ impl<'a, SS: StepSize> NLPSolver<'a> for GradientDescent<'a, SS> {
     }
 }
 
-impl<'a, SS: StepSize> Solver for GradientDescent<'a, SS> {
-    fn solve(
-        &mut self,
-        state: &mut SolverState,
-        properties: &mut SolverHooks,
-    ) -> Result<Status, Problem> {
-        let max_iterations = if self.options.max_iterations > 0 {
-            self.options.max_iterations as I
+impl<'a, SS: StepSize> IterativeSolver for GradientDescent<'a, SS> {
+    fn get_max_iterations(&self) -> usize {
+        if self.options.max_iterations as usize > 0 {
+            self.options.max_iterations as usize
         } else {
-            1e6 as I // Default to a large number if not set
-        };
-
-        for iter in 0..max_iterations {
-            state.nit = iter;
-
-            let status = self.iterate(state)?;
-            if status != Status::InProgress {
-                return Ok(status);
-            }
-
-            properties.callback.call(state);
-
-            if let Some(terminator_status) = properties.terminator.terminate(state) {
-                println!(
-                    "Terminated in {} iterations with status: {:?}",
-                    iter + 1,
-                    terminator_status
-                );
-                return Ok(terminator_status);
-            }
+            ipm::DEFAULT_MAX_ITERATIONS
         }
-        Ok(Status::IterationLimit) // If max_iterations reached without convergence
+    }
+
+    fn get_program(&self) -> &dyn OptimizationProgram {
+        self.nlp
+    }
+
+    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
+        self.iterate(state)
     }
 }
 

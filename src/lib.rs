@@ -93,13 +93,65 @@ pub trait OptimizationProgram {
 ///
 /// Provides a standard interface for algorithms that proceed by repeated iteration,
 /// such as simplex, interior-point, or gradient-based methods.
-pub trait Solver {
-    /// Run the solver until convergence or maximum iterations.
+pub trait IterativeSolver {
+    fn get_program(&self) -> &dyn OptimizationProgram;
+
+    fn get_max_iterations(&self) -> usize;
+
+    fn initialize(&mut self, state: &mut SolverState) {
+        // Default implementation does nothing, but can be overridden by specific solvers
+    }
+
+    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem>;
+
     fn solve(
         &mut self,
         state: &mut SolverState,
         hooks: &mut SolverHooks,
-    ) -> Result<Status, Problem>;
+    ) -> Result<Status, Problem> {
+        hooks.callback.init(state);
+
+        self.initialize(state);
+
+        state.nit = 0;
+        state.status = Status::InProgress;
+
+        let max_iter = {
+            let max_iter = self.get_max_iterations();
+            if max_iter > 0 {
+                max_iter as usize
+            } else {
+                1000
+            }
+        };
+
+        for iter in 0..max_iter {
+            state.nit = iter;
+            self.iterate(state)?;
+
+            let status = state.status;
+            if status != Status::InProgress {
+                println!(
+                    "Converged in {} iterations with status: {:?}",
+                    iter + 1,
+                    status
+                );
+                return Ok(status);
+            }
+
+            hooks.callback.call(state);
+            if let Some(terminator_status) = hooks.terminator.terminate(state) {
+                println!(
+                    "Terminated in {} iterations with status: {:?}",
+                    iter + 1,
+                    terminator_status
+                );
+                return Ok(terminator_status);
+            }
+        }
+        println!("Reached maximum iterations without convergence.");
+        Ok(Status::IterationLimit)
+    }
 }
 
 #[derive(Debug, Clone)]

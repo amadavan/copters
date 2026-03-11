@@ -5,9 +5,9 @@ use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, OptimizationProgram, SearchDirection, Solver, SolverHooks, SolverOptions, SolverState,
+    E, I, OptimizationProgram, SearchDirection, IterativeSolver, SolverHooks, SolverOptions, SolverState,
     Status,
-    ipm::RHS,
+    ipm::{self, RHS},
     linalg::{solver::LinearSolver, vector_ops::cwise_multiply_finite},
     qp::{
         QPSolver, QuadraticProgram,
@@ -30,7 +30,7 @@ pub mod mu_update;
 /// augmented system formulation (`System`), barrier parameter strategy (`MU`),
 /// and line search (`LS`).
 #[explicit_options(name = SolverOptions)]
-#[use_option(name = "max_iterations", type_=I, default="0", description="Maximum number of iterations (0 uses solver defaults).")]
+#[use_option(name = "max_iterations", type_=I, description="Maximum number of iterations (0 uses solver defaults).")]
 pub struct MehrotraPredictorCorrector<
     'a,
     LinSolve: LinearSolver,
@@ -51,16 +51,6 @@ pub struct MehrotraPredictorCorrector<
 impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>>
     MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
-    const DEFAULT_MAX_ITER: usize = 100;
-
-    fn get_max_iter(&self) -> usize {
-        if self.options.max_iterations < 1 {
-            Self::DEFAULT_MAX_ITER
-        } else {
-            self.options.max_iterations as usize
-        }
-    }
-
     fn initialize(&mut self, _state: &mut SolverState) {
         // TODO: Initialization code here
     }
@@ -136,46 +126,27 @@ impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdat
     }
 }
 
-impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> Solver
+impl<'a, LinSolve: LinearSolver, Sys: AugmentedSystem<'a, LinSolve>, MU: MuUpdate<'a>> IterativeSolver
     for MehrotraPredictorCorrector<'a, LinSolve, Sys, MU>
 {
-    /// Run the solver until convergence or maximum iterations.
-    fn solve(
-        &mut self,
-        state: &mut SolverState,
-        properties: &mut SolverHooks,
-    ) -> Result<Status, Problem> {
-        self.initialize(state);
-        state.nit = 0;
-        state.set_status(Status::InProgress);
-        properties.callback.init(state);
-
-        let max_iter = self.get_max_iter();
-        for iter in 0..max_iter {
-            state.nit = iter;
-            self.iterate(state)?;
-
-            let status = state.get_status();
-            if status != Status::InProgress {
-                println!(
-                    "Converged in {} iterations with status: {:?}",
-                    iter + 1,
-                    status
-                );
-                return Ok(status);
-            }
-
-            properties.callback.call(state);
-            if let Some(terminator_status) = properties.terminator.terminate(state) {
-                println!(
-                    "Terminated in {} iterations with status: {:?}",
-                    iter + 1,
-                    terminator_status
-                );
-                return Ok(terminator_status);
-            }
+    fn get_max_iterations(&self) -> usize {
+        if self.options.max_iterations as usize > 0 {
+            self.options.max_iterations as usize
+        } else {
+            ipm::DEFAULT_MAX_ITERATIONS
         }
-        println!("Reached maximum iterations without convergence.");
-        Ok(Status::IterationLimit)
+    }
+
+    fn get_program(&self) -> &dyn OptimizationProgram {
+        self.qp
+    }
+
+    fn initialize(&mut self, state: &mut SolverState) {
+        self.initialize(state);
+    }
+
+    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
+        self.iterate(state)?;
+        Ok(state.get_status())
     }
 }

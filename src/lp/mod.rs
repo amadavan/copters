@@ -7,7 +7,7 @@ use crate::linalg::vector_ops::cwise_multiply_finite;
 use crate::nlp::NonlinearProgram;
 use crate::qp::QuadraticProgram;
 use crate::{
-    E, I, Solver, SolverOptions,
+    E, I, IterativeSolver, SolverOptions,
     linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
 };
 
@@ -21,6 +21,7 @@ pub mod mpc;
 ///      l <= x <= u
 /// ```
 #[allow(non_snake_case)]
+#[derive(Clone, Debug)]
 pub struct LinearProgram {
     /// Objective function coefficients.
     c: Col<E>,
@@ -176,7 +177,7 @@ impl OptimizationProgram for LinearProgram {
 }
 
 /// Trait for solvers that operate on a [`LinearProgram`].
-pub trait LPSolver<'a>: Solver {
+pub trait LPSolver<'a>: IterativeSolver {
     /// Creates a new solver instance for the given linear program and options.
     fn new(lp: &'a LinearProgram, options: &SolverOptions) -> Self
     where
