@@ -1,2 +1,2 @@
 pub use options::*;
-pub use testing::*;
+pub use symdiff::*;

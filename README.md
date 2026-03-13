@@ -103,4 +103,4 @@ Avinash Madavan - avinash.madavan@gmail.com
 Project Link: [https://github.com/amadavan/copters](https://github.com/amadavan/copters)
 
 <!-- > [!NOTE] -->
-> **AI Disclosure:** This project makes limited use of AI-assisted tooling. AI is employed for debugging assistance, boilerplate generation, and drafting documentation. All algorithm design, core implementation, and architectural decisions are made by the author. AI-generated content is reviewed before inclusion.
+> **AI Disclosure:** This project makes limited use of AI-assisted tooling. AI is employed for debugging assistance, boilerplate generation, and drafting documentation. All algorithm design, core implementation, and architectural decisions, unless explicitly specified, are made by the author. AI-generated content is reviewed before inclusion.

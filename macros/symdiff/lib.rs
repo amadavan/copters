@@ -1,0 +1,616 @@
+//! Compile-time symbolic automatic differentiation.
+//!
+//! This crate provides the [`gradient`] and [`hessian`] proc-macro attributes,
+//! which parse a Rust function body at compile time, build a symbolic
+//! expression tree ([`SymExpr`]), differentiate it analytically, simplify the
+//! result, and emit a companion function containing the closed-form derivative.
+//!
+//! # Supported syntax
+//!
+//! | Source form | Symbolic node |
+//! |---|---|
+//! | `x + y`, `x - y`, `x * y`, `x / y` | `Add`, `Sub`, `Mul`, `Div` |
+//! | `-x` | `Neg` |
+//! | `x.sin()`, `x.cos()` | `Sin`, `Cos` |
+//! | `x.ln()`, `x.exp()`, `x.sqrt()` | `Ln`, `Exp`, `Sqrt` |
+//! | `x.pow(n)` / `pow(x, n)` (const `n`) | `Pow` |
+//! | float literal | `Const` |
+//! | function parameter name | `Var(index)` |
+//! | `let name = expr;` | inlined into subsequent exprs |
+//! | `x as f64`, `(x)` | transparent (inner expr used) |
+//! | anything else | `Opaque` (d/dx = 0) |
+//!
+//! > *AI Disclosure* The structure of this file and partial implementations were generated with AI-tooling.
+
+use std::collections::HashMap;
+
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
+use syn::{Expr, Pat, Stmt};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Symbolic expression tree
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A compile-time symbolic expression tree.
+///
+/// Variables are represented by their 0-based index into the function's `f64`
+/// parameter list rather than by name, so that [`diff`](SymExpr::diff) and
+/// [`into_token_stream`](SymExpr::into_token_stream) can work purely by index
+/// without carrying string state.
+#[derive(Clone, Debug)]
+enum SymExpr {
+    /// A numeric constant.
+    Const(f64),
+    /// The `i`-th `f64` parameter of the function being differentiated.
+    Var(String, i32),
+    Add(Box<SymExpr>, Box<SymExpr>),
+    Sub(Box<SymExpr>, Box<SymExpr>),
+    Mul(Box<SymExpr>, Box<SymExpr>),
+    Div(Box<SymExpr>, Box<SymExpr>),
+    /// Integer power: `base.powi(exp)`.
+    Powi(Box<SymExpr>, i32),
+    Neg(Box<SymExpr>),
+    Sin(Box<SymExpr>),
+    Cos(Box<SymExpr>),
+    Ln(Box<SymExpr>),
+    Exp(Box<SymExpr>),
+    Sqrt(Box<SymExpr>),
+    /// An expression that could not be parsed symbolically.
+    ///
+    /// Its derivative with respect to any variable is assumed to be zero.
+    /// This is safe for sub-expressions that do not depend on the
+    /// differentiation variable (e.g. a call to an opaque helper function),
+    /// but will silently produce an incorrect derivative if the expression
+    /// actually does depend on that variable.
+    Opaque(TokenStream),
+}
+
+impl SymExpr {
+    /// Algebraically simplify the expression.
+    ///
+    /// Applies constant folding and basic identities:
+    /// - `0 + e = e`, `e + 0 = e`
+    /// - `0 * e = 0`, `1 * e = e`
+    /// - `e / 1 = e`
+    /// - `--e = e`
+    /// - `(base^a)^b = base^(a*b)`
+    /// - Constant trig/log/exp/sqrt are evaluated eagerly.
+    pub fn simplify(&self) -> Self {
+        match self {
+            SymExpr::Const(c) => SymExpr::Const(*c),
+            SymExpr::Var(name, i) => SymExpr::Var(name.clone(), *i),
+            SymExpr::Add(e1, e2) => {
+                let se1 = e1.simplify();
+                let se2 = e2.simplify();
+                match (&se1, &se2) {
+                    (_, SymExpr::Const(0.0)) => se1,
+                    (SymExpr::Const(0.0), _) => se2,
+                    (SymExpr::Const(c1), SymExpr::Const(c2)) => SymExpr::Const(c1 + c2),
+                    _ => SymExpr::Add(Box::new(se1), Box::new(se2)),
+                }
+            }
+            SymExpr::Sub(e1, e2) => {
+                let se1 = e1.simplify();
+                let se2 = e2.simplify();
+                match (&se1, &se2) {
+                    (SymExpr::Const(0.0), _) => SymExpr::Neg(Box::new(se2)),
+                    (_, SymExpr::Const(0.0)) => se1,
+                    (SymExpr::Const(c1), SymExpr::Const(c2)) => SymExpr::Const(c1 - c2),
+                    _ => SymExpr::Sub(Box::new(se1), Box::new(se2)),
+                }
+            }
+            SymExpr::Mul(e1, e2) => {
+                let se1 = e1.simplify();
+                let se2 = e2.simplify();
+                match (&se1, &se2) {
+                    (SymExpr::Const(0.0), _) | (_, SymExpr::Const(0.0)) => SymExpr::Const(0.0),
+                    (SymExpr::Const(1.0), _) => se2,
+                    (_, SymExpr::Const(1.0)) => se1,
+                    (SymExpr::Const(c1), SymExpr::Const(c2)) => SymExpr::Const(c1 * c2),
+                    _ => SymExpr::Mul(Box::new(se1), Box::new(se2)),
+                }
+            }
+            SymExpr::Div(e1, e2) => {
+                let se1 = e1.simplify();
+                let se2 = e2.simplify();
+                match (&se1, &se2) {
+                    (SymExpr::Const(c1), SymExpr::Const(c2)) if *c2 != 0.0 => {
+                        SymExpr::Const(c1 / c2)
+                    }
+                    (SymExpr::Const(0.0), _) => SymExpr::Const(0.0),
+                    (_, SymExpr::Const(1.0)) => se1,
+                    _ => SymExpr::Div(Box::new(se1), Box::new(se2)),
+                }
+            }
+            SymExpr::Powi(e, exp) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.powi(*exp)),
+                    // (base^a)^b  →  base^(a*b)
+                    // SymExpr::Powi(base, inner_exp) => SymExpr::Powi(base.clone(), *inner_exp),
+                    _ => SymExpr::Powi(Box::new(se), *exp),
+                }
+            }
+            SymExpr::Neg(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(-c),
+                    SymExpr::Neg(inner) => *inner.clone(), // --e = e
+                    _ => SymExpr::Neg(Box::new(se)),
+                }
+            }
+            SymExpr::Sin(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.sin()),
+                    _ => SymExpr::Sin(Box::new(se)),
+                }
+            }
+            SymExpr::Cos(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.cos()),
+                    _ => SymExpr::Cos(Box::new(se)),
+                }
+            }
+            SymExpr::Ln(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) if *c > 0.0 => SymExpr::Const(c.ln()),
+                    _ => SymExpr::Ln(Box::new(se)),
+                }
+            }
+            SymExpr::Exp(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.exp()),
+                    _ => SymExpr::Exp(Box::new(se)),
+                }
+            }
+            SymExpr::Sqrt(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) if *c >= 0.0 => SymExpr::Const(c.sqrt()),
+                    _ => SymExpr::Sqrt(Box::new(se)),
+                }
+            }
+            SymExpr::Opaque(e) => SymExpr::Opaque(e.clone()),
+        }
+    }
+
+    /// Symbolically differentiate with respect to parameter index `var`.
+    ///
+    /// Applies the standard differentiation rules:
+    /// - **Sum rule**: `(f ± g)' = f' ± g'`
+    /// - **Product rule**: `(fg)' = f'g + fg'`
+    /// - **Quotient rule**: `(f/g)' = f'/g - fg'/g²`
+    /// - **Power rule**: `(fⁿ)' = n·fⁿ⁻¹·f'`
+    /// - **Chain rule**: applied to sin, cos, ln, exp, sqrt
+    ///
+    /// [`Opaque`](SymExpr::Opaque) sub-expressions are treated as constants
+    /// (derivative = 0).  See the variant's documentation for the implications.
+    pub fn diff(&self, var: String) -> Self {
+        match self {
+            SymExpr::Const(_) => SymExpr::Const(0.0),
+            SymExpr::Var(name, i) => {
+                if format!("{}[{}]", name, i) == var {
+                    SymExpr::Const(1.0)
+                } else {
+                    SymExpr::Const(0.0)
+                }
+            }
+            SymExpr::Add(e1, e2) => SymExpr::Add(
+                Box::new(e1.diff(var.clone())),
+                Box::new(e2.diff(var.clone())),
+            ),
+            SymExpr::Sub(e1, e2) => SymExpr::Sub(
+                Box::new(e1.diff(var.clone())),
+                Box::new(e2.diff(var.clone())),
+            ),
+            // Product rule: (e1*e2)' = e1'*e2 + e1*e2'
+            SymExpr::Mul(e1, e2) => SymExpr::Add(
+                Box::new(SymExpr::Mul(Box::new(e1.diff(var.clone())), e2.clone())),
+                Box::new(SymExpr::Mul(e1.clone(), Box::new(e2.diff(var.clone())))),
+            ),
+            // Quotient rule: (e1/e2)' = e1'/e2 - e1*e2'/e2²
+            SymExpr::Div(e1, e2) => SymExpr::Sub(
+                Box::new(SymExpr::Div(Box::new(e1.diff(var.clone())), e2.clone())),
+                Box::new(SymExpr::Div(
+                    Box::new(SymExpr::Mul(e1.clone(), Box::new(e2.diff(var.clone())))),
+                    Box::new(SymExpr::Powi(e2.clone(), 2)),
+                )),
+            ),
+            // Power rule: (base^n)' = n * base^(n-1) * base'
+            SymExpr::Powi(e1, exp) => {
+                if *exp == 0 {
+                    SymExpr::Const(0.0)
+                } else if let SymExpr::Const(_) = **e1 {
+                    // (c^n)' = 0
+                    SymExpr::Const(0.0)
+                } else {
+                    let new_exp = *exp - 1;
+                    let coeff = *exp as f64;
+                    SymExpr::Mul(
+                        Box::new(SymExpr::Mul(
+                            Box::new(SymExpr::Const(coeff)),
+                            Box::new(SymExpr::Powi(e1.clone(), new_exp)),
+                        )),
+                        Box::new(e1.diff(var)),
+                    )
+                }
+            }
+            SymExpr::Neg(e) => SymExpr::Neg(Box::new(e.diff(var))),
+            // sin'(e) = cos(e) * e'
+            SymExpr::Sin(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.cos()),
+                    _ => SymExpr::Mul(Box::new(SymExpr::Cos(Box::new(se))), Box::new(e.diff(var))),
+                }
+            }
+            // cos'(e) = -sin(e) * e'
+            SymExpr::Cos(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(-c.sin()),
+                    _ => SymExpr::Mul(
+                        Box::new(SymExpr::Mul(
+                            Box::new(SymExpr::Const(-1.0)),
+                            Box::new(SymExpr::Sin(Box::new(se))),
+                        )),
+                        Box::new(e.diff(var)),
+                    ),
+                }
+            }
+            // ln'(e) = e' / e
+            SymExpr::Ln(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) if *c > 0.0 => SymExpr::Const(1.0 / c),
+                    _ => SymExpr::Div(Box::new(e.diff(var)), Box::new(se)),
+                }
+            }
+            // exp'(e) = exp(e) * e'
+            SymExpr::Exp(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) => SymExpr::Const(c.exp()),
+                    _ => SymExpr::Mul(Box::new(SymExpr::Exp(Box::new(se))), Box::new(e.diff(var))),
+                }
+            }
+            // sqrt'(e) = e' / (2 * sqrt(e))
+            SymExpr::Sqrt(e) => {
+                let se = e.simplify();
+                match &se {
+                    SymExpr::Const(c) if *c >= 0.0 => SymExpr::Const(0.5 / c.sqrt()),
+                    _ => SymExpr::Div(
+                        Box::new(e.diff(var)),
+                        Box::new(SymExpr::Mul(
+                            Box::new(SymExpr::Sqrt(Box::new(se))),
+                            Box::new(SymExpr::Const(2.0)),
+                        )),
+                    ),
+                }
+            }
+            SymExpr::Opaque(_) => SymExpr::Const(0.0),
+        }
+    }
+
+    /// Emit this expression as a `proc_macro2::TokenStream`.
+    ///
+    /// `base_var` is the name of a local slice variable introduced in the
+    /// generated function body (e.g. `"__v"`).  [`Var(i)`](SymExpr::Var) nodes
+    /// are emitted as `base_var[i]`, so the caller must ensure a binding like
+    /// `let __v = [x, y, ...];` is present in the generated code.
+    fn into_token_stream(self) -> TokenStream {
+        match self {
+            SymExpr::Const(c) => {
+                let lit = proc_macro2::Literal::f64_suffixed(c);
+                quote! { #lit }
+            }
+            SymExpr::Var(name, i) => {
+                let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+                let idx = i as usize;
+                quote! { #ident[#idx] }
+            }
+            SymExpr::Add(e1, e2) => {
+                let ts1 = e1.into_token_stream();
+                let ts2 = e2.into_token_stream();
+                quote! { (#ts1 + #ts2) }
+            }
+            SymExpr::Sub(e1, e2) => {
+                let ts1 = e1.into_token_stream();
+                let ts2 = e2.into_token_stream();
+                quote! { (#ts1 - #ts2) }
+            }
+            SymExpr::Mul(e1, e2) => {
+                let ts1 = e1.into_token_stream();
+                let ts2 = e2.into_token_stream();
+                quote! { (#ts1 * #ts2) }
+            }
+            SymExpr::Div(e1, e2) => {
+                let ts1 = e1.into_token_stream();
+                let ts2 = e2.into_token_stream();
+                quote! { (#ts1 / #ts2) }
+            }
+            SymExpr::Powi(e, exp) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).powi(#exp) }
+            }
+            SymExpr::Neg(e) => {
+                let ts = e.into_token_stream();
+                quote! { -(#ts) }
+            }
+            SymExpr::Sin(e) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).sin() }
+            }
+            SymExpr::Cos(e) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).cos() }
+            }
+            SymExpr::Ln(e) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).ln() }
+            }
+            SymExpr::Exp(e) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).exp() }
+            }
+            SymExpr::Sqrt(e) => {
+                let ts = e.into_token_stream();
+                quote! { (#ts).sqrt() }
+            }
+            SymExpr::Opaque(ts) => ts,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syn::Expr → SymExpr
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Convert a parsed `syn::Expr` into a [`SymExpr`].
+///
+/// `bindings` maps names to their symbolic form.  It should be pre-seeded
+/// with the function's parameter names mapped to `Var(index)`, and extended
+/// with `let`-binding names as the function body is walked.  Unknown
+/// identifiers and expressions that cannot be represented symbolically are
+/// wrapped in [`SymExpr::Opaque`].
+fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> SymExpr {
+    match expr {
+        Expr::Lit(lit) => {
+            if let syn::Lit::Float(f) = &lit.lit {
+                SymExpr::Const(f.base10_parse::<f64>().unwrap())
+            } else {
+                SymExpr::Opaque(quote! { #lit })
+            }
+        }
+
+        Expr::Path(path) => {
+            if let Some(ident) = path.path.get_ident() {
+                let name = ident.to_string();
+                if let Some(sym) = bindings.get(&name) {
+                    sym.clone()
+                } else {
+                    SymExpr::Opaque(quote! { #path })
+                }
+            } else {
+                SymExpr::Opaque(quote! { #path })
+            }
+        }
+
+        Expr::Index(index) => SymExpr::Var(
+            index.expr.to_token_stream().to_string(),
+            index
+                .index
+                .to_token_stream()
+                .to_string()
+                .parse::<i32>()
+                .unwrap(),
+        ),
+
+        Expr::Binary(bin) => {
+            let left = syn_to_sym(&bin.left, bindings);
+            let right = syn_to_sym(&bin.right, bindings);
+            match bin.op {
+                syn::BinOp::Add(_) => SymExpr::Add(Box::new(left), Box::new(right)),
+                syn::BinOp::Sub(_) => SymExpr::Sub(Box::new(left), Box::new(right)),
+                syn::BinOp::Mul(_) => SymExpr::Mul(Box::new(left), Box::new(right)),
+                syn::BinOp::Div(_) => SymExpr::Div(Box::new(left), Box::new(right)),
+                _ => SymExpr::Opaque(quote! { #bin }),
+            }
+        }
+
+        Expr::Unary(un) => {
+            let operand = syn_to_sym(&un.expr, bindings);
+            match un.op {
+                syn::UnOp::Neg(_) => SymExpr::Neg(Box::new(operand)),
+                _ => SymExpr::Opaque(quote! { #un }),
+            }
+        }
+
+        // Method calls: `x.sin()`, `x.pow(n)`, etc.
+        Expr::MethodCall(call) => {
+            let receiver = syn_to_sym(&call.receiver, bindings);
+            let args: Vec<SymExpr> = call
+                .args
+                .iter()
+                .map(|arg| syn_to_sym(arg, bindings))
+                .collect();
+            match call.method.to_string().as_str() {
+                "sin" if args.is_empty() => SymExpr::Sin(Box::new(receiver)),
+                "cos" if args.is_empty() => SymExpr::Cos(Box::new(receiver)),
+                "ln" if args.is_empty() => SymExpr::Ln(Box::new(receiver)),
+                "exp" if args.is_empty() => SymExpr::Exp(Box::new(receiver)),
+                "sqrt" if args.is_empty() => SymExpr::Sqrt(Box::new(receiver)),
+                "powi" if args.len() == 1 => {
+                    if let SymExpr::Const(exp) = &args[0] {
+                        SymExpr::Powi(Box::new(receiver), *exp as i32)
+                    } else {
+                        SymExpr::Opaque(quote! { #call })
+                    }
+                }
+                _ => SymExpr::Opaque(quote! { #call }),
+            }
+        }
+
+        // Free-function calls: `sin(x)`, `f64::sin(x)`, etc.
+        Expr::Call(call) => {
+            if let Expr::Path(path) = &*call.func {
+                if let Some(ident) = path.path.get_ident() {
+                    let func_name = ident.to_string();
+                    let args: Vec<SymExpr> = call
+                        .args
+                        .iter()
+                        .map(|arg| syn_to_sym(arg, bindings))
+                        .collect();
+                    match func_name.as_str() {
+                        "sin" if args.len() == 1 => return SymExpr::Sin(Box::new(args[0].clone())),
+                        "cos" if args.len() == 1 => return SymExpr::Cos(Box::new(args[0].clone())),
+                        "ln" if args.len() == 1 => return SymExpr::Ln(Box::new(args[0].clone())),
+                        "exp" if args.len() == 1 => return SymExpr::Exp(Box::new(args[0].clone())),
+                        "sqrt" if args.len() == 1 => {
+                            return SymExpr::Sqrt(Box::new(args[0].clone()));
+                        }
+                        "powi" if args.len() == 2 => {
+                            if let SymExpr::Const(exp) = &args[1] {
+                                return SymExpr::Powi(Box::new(args[0].clone()), *exp as i32);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            SymExpr::Opaque(quote! { #call })
+        }
+
+        // Transparent wrappers — recurse into the inner expression.
+        Expr::Paren(paren) => syn_to_sym(&paren.expr, bindings),
+        Expr::Group(group) => syn_to_sym(&group.expr, bindings),
+        // `x as f64` — strip the cast and differentiate the inner expression.
+        Expr::Cast(c) => syn_to_sym(&c.expr, bindings),
+
+        _ => SymExpr::Opaque(quote! { #expr }),
+    }
+}
+
+fn parse_body(block: &syn::Block) -> Option<SymExpr> {
+    let mut bindings = HashMap::new();
+
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Local(local) => {
+                if let Pat::Ident(pat_ident) = &local.pat {
+                    let name = pat_ident.ident.to_string();
+                    if let Some(init) = &local.init {
+                        let sym = syn_to_sym(&init.expr, &bindings);
+                        bindings.insert(name, sym);
+                    }
+                }
+            }
+            Stmt::Expr(expr, None) => {
+                return Some(syn_to_sym(expr, &bindings));
+            }
+            _ => {
+                // Unsupported statement type (e.g. semi-colon terminated expr, item, macro).
+                // For simplicity, we require the function body to be a single expression
+                // with optional `let` bindings, so we can skip these.
+            }
+        }
+    }
+
+    None
+}
+
+#[derive(deluxe::ParseMetaItem)]
+struct DerivativeInput {
+    arg: String,
+    dim: usize,
+}
+
+#[proc_macro_attribute]
+pub fn gradient(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input_fn = syn::parse_macro_input!(item as syn::ItemFn);
+    let fn_name = &input_fn.sig.ident;
+    let params = &input_fn.sig.inputs;
+    let body = &input_fn.block;
+
+    let DerivativeInput { arg, dim } = deluxe::parse::<DerivativeInput>(attr.into())
+        .expect("Failed to parse macro attribute arguments for gradient.");
+
+    let sym = match parse_body(body) {
+        Some(s) => s,
+        None => {
+            return syn::Error::new_spanned(
+                body,
+                "Function body must be a single expression for symbolic differentiation",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let grad_components: Vec<TokenStream> = (0..dim)
+        .map(|i| {
+            let d = sym.diff(format!("{}[{}]", arg, i)).simplify();
+            d.into_token_stream()
+        })
+        .collect();
+
+    let grad_name = syn::Ident::new(
+        &format!("{}_gradient", fn_name),
+        proc_macro2::Span::call_site(),
+    );
+
+    let expanded = quote!(
+        #input_fn
+
+        pub fn #grad_name(#params) -> [f64; #dim] {
+            [#(#grad_components),*]
+        }
+    );
+
+    expanded.into()
+}
+
+// #[proc_macro_attribute]
+// pub fn gradient(
+//     _attr: proc_macro::TokenStream,
+//     item: proc_macro::TokenStream,
+// ) -> proc_macro::TokenStream {
+//     let input_fn = syn::parse_macro_input!(item as syn::ItemFn);
+//     let fn_name = &input_fn.sig.ident;
+//     let params = &input_fn.sig.inputs;
+//     let body = &input_fn.block;
+
+//     // Need to check input types
+
+//     let grad_components = parse_body(body)
+//         .expect("Failed to parse function body into symbolic form")
+//         .diff(0) // TODO: handle multiple parameters
+//         .simplify()
+//         .into_token_stream("__v");
+
+//     let expanded = quote!(
+//         #input_fn
+
+//         // Generate the gradient function.
+//         pub fn #fn_name##_gradient(#params) -> [f64; #params.len()] {
+//             let __v = [#(#params),*];
+//             let __f = #fn_name(#(#params),*);
+//             let __sym = parse_body(&#body).expect("Failed to parse function body into symbolic form");
+//             let mut __grad = [0.0; #params.len()];
+//             for i in 0..#params.len() {
+//                 let d = __sym.diff(i).simplify();
+//                 __grad[i] = d.into_token_stream("__v").to_string().parse::<f64>().unwrap();
+//             }
+//             __grad
+//         }
+//     );
+//     expanded.into()
+// }

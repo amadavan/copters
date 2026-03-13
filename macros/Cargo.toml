@@ -8,5 +8,5 @@ name = "macros"
 path = "lib.rs"
 
 [dependencies]
-testing = { path = "testing" }
 options = { path = "options" }
+symdiff = { path = "symdiff" }
