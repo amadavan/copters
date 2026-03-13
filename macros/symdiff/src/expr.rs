@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use syn::{Expr, Pat, Stmt};
+use syn::Expr;
+
+const DEFAULT_MAX_PASSES: usize = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbolic expression tree
@@ -14,7 +16,7 @@ use syn::{Expr, Pat, Stmt};
 /// parameter list rather than by name, so that [`diff`](SymExpr::diff) and
 /// [`into_token_stream`](SymExpr::into_token_stream) can work purely by index
 /// without carrying string state.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum SymExpr {
     /// A numeric constant.
     Const(f64),
@@ -39,7 +41,7 @@ pub(super) enum SymExpr {
     /// differentiation variable (e.g. a call to an opaque helper function),
     /// but will silently produce an incorrect derivative if the expression
     /// actually does depend on that variable.
-    Opaque(TokenStream),
+    Opaque(String),
 }
 
 impl SymExpr {
@@ -84,6 +86,12 @@ impl SymExpr {
                     (SymExpr::Const(1.0), _) => se2,
                     (_, SymExpr::Const(1.0)) => se1,
                     (SymExpr::Const(c1), SymExpr::Const(c2)) => SymExpr::Const(c1 * c2),
+                    (SymExpr::Powi(base1, exp1), SymExpr::Powi(base2, exp2)) if base1 == base2 => {
+                        SymExpr::Powi(base1.clone(), exp1 + exp2)
+                    } // base^a * base^b = base^(a+b)
+                    (SymExpr::Exp(e1), SymExpr::Exp(e2)) => {
+                        SymExpr::Exp(Box::new(SymExpr::Add(e1.clone(), e2.clone())))
+                    } // exp(a) * exp(b) = exp(a + b)
                     _ => SymExpr::Mul(Box::new(se1), Box::new(se2)),
                 }
             }
@@ -153,6 +161,19 @@ impl SymExpr {
             }
             SymExpr::Opaque(e) => SymExpr::Opaque(e.clone()),
         }
+    }
+
+    pub fn simplify_multipass(&self, max_passes: Option<usize>) -> Self {
+        let mut simplified = self.clone();
+        let max_passes = max_passes.unwrap_or(DEFAULT_MAX_PASSES);
+        for _ in 0..max_passes {
+            let new_simplified = simplified.simplify();
+            if new_simplified == simplified {
+                break;
+            }
+            simplified = new_simplified;
+        }
+        simplified
     }
 
     /// Symbolically differentiate with respect to parameter index `var`.
@@ -338,7 +359,7 @@ impl SymExpr {
                 let ts = e.into_token_stream();
                 quote! { (#ts).sqrt() }
             }
-            SymExpr::Opaque(ts) => ts,
+            SymExpr::Opaque(ts) => ts.into_token_stream(),
         }
     }
 }
@@ -362,7 +383,7 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
             } else if let syn::Lit::Int(i) = &lit.lit {
                 SymExpr::Const(i.base10_parse::<f64>().unwrap())
             } else {
-                SymExpr::Opaque(quote! { #lit })
+                SymExpr::Opaque(quote! { #lit }.to_string())
             }
         }
 
@@ -372,10 +393,10 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
                 if let Some(sym) = bindings.get(&name) {
                     sym.clone()
                 } else {
-                    SymExpr::Opaque(quote! { #path })
+                    SymExpr::Opaque(quote! { #path }.to_string())
                 }
             } else {
-                SymExpr::Opaque(quote! { #path })
+                SymExpr::Opaque(quote! { #path }.to_string())
             }
         }
 
@@ -397,7 +418,7 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
                 syn::BinOp::Sub(_) => SymExpr::Sub(Box::new(left), Box::new(right)),
                 syn::BinOp::Mul(_) => SymExpr::Mul(Box::new(left), Box::new(right)),
                 syn::BinOp::Div(_) => SymExpr::Div(Box::new(left), Box::new(right)),
-                _ => SymExpr::Opaque(quote! { #bin }),
+                _ => SymExpr::Opaque(quote! { #bin }.to_string()),
             }
         }
 
@@ -405,7 +426,7 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
             let operand = syn_to_sym(&un.expr, bindings);
             match un.op {
                 syn::UnOp::Neg(_) => SymExpr::Neg(Box::new(operand)),
-                _ => SymExpr::Opaque(quote! { #un }),
+                _ => SymExpr::Opaque(quote! { #un }.to_string()),
             }
         }
 
@@ -427,10 +448,10 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
                     if let SymExpr::Const(exp) = &args[0] {
                         SymExpr::Powi(Box::new(receiver), *exp as i32)
                     } else {
-                        SymExpr::Opaque(quote! { #call })
+                        SymExpr::Opaque(quote! { #call }.to_string())
                     }
                 }
-                _ => SymExpr::Opaque(quote! { #call }),
+                _ => SymExpr::Opaque(quote! { #call }.to_string()),
             }
         }
 
@@ -461,7 +482,7 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
                     }
                 }
             }
-            SymExpr::Opaque(quote! { #call })
+            SymExpr::Opaque(quote! { #call }.to_string())
         }
 
         // Transparent wrappers — recurse into the inner expression.
@@ -470,6 +491,6 @@ pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> Sy
         // `x as f64` — strip the cast and differentiate the inner expression.
         Expr::Cast(c) => syn_to_sym(&c.expr, bindings),
 
-        _ => SymExpr::Opaque(quote! { #expr }),
+        _ => SymExpr::Opaque(quote! { #expr }.to_string()),
     }
 }

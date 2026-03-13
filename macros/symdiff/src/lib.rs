@@ -61,6 +61,7 @@ fn parse_body(block: &syn::Block) -> Option<SymExpr> {
 struct DerivativeInput {
     arg: String,
     dim: usize,
+    max_passes: Option<usize>,
 }
 
 #[proc_macro_attribute]
@@ -74,7 +75,11 @@ pub fn gradient(
     let body = &input_fn.block;
     let vis = &input_fn.vis;
 
-    let DerivativeInput { arg, dim } = deluxe::parse::<DerivativeInput>(attr.into())
+    let DerivativeInput {
+        arg,
+        dim,
+        max_passes,
+    } = deluxe::parse::<DerivativeInput>(attr.into())
         .expect("Failed to parse macro attribute arguments for gradient.");
 
     let sym = match parse_body(body) {
@@ -91,7 +96,9 @@ pub fn gradient(
 
     let grad_components: Vec<TokenStream> = (0..dim)
         .map(|i| {
-            let d = sym.diff(format!("{}[{}]", arg, i)).simplify();
+            let d = sym
+                .diff(format!("{}[{}]", arg, i))
+                .simplify_multipass(max_passes);
             d.into_token_stream()
         })
         .collect();

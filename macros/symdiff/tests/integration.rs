@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use symdiff::gradient;
 
 #[gradient(arg = "x", dim = 2)]
