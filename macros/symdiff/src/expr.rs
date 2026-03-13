@@ -1,27 +1,3 @@
-//! Compile-time symbolic automatic differentiation.
-//!
-//! This crate provides the [`gradient`] and [`hessian`] proc-macro attributes,
-//! which parse a Rust function body at compile time, build a symbolic
-//! expression tree ([`SymExpr`]), differentiate it analytically, simplify the
-//! result, and emit a companion function containing the closed-form derivative.
-//!
-//! # Supported syntax
-//!
-//! | Source form | Symbolic node |
-//! |---|---|
-//! | `x + y`, `x - y`, `x * y`, `x / y` | `Add`, `Sub`, `Mul`, `Div` |
-//! | `-x` | `Neg` |
-//! | `x.sin()`, `x.cos()` | `Sin`, `Cos` |
-//! | `x.ln()`, `x.exp()`, `x.sqrt()` | `Ln`, `Exp`, `Sqrt` |
-//! | `x.pow(n)` / `pow(x, n)` (const `n`) | `Pow` |
-//! | float literal | `Const` |
-//! | function parameter name | `Var(index)` |
-//! | `let name = expr;` | inlined into subsequent exprs |
-//! | `x as f64`, `(x)` | transparent (inner expr used) |
-//! | anything else | `Opaque` (d/dx = 0) |
-//!
-//! > *AI Disclosure* The structure of this file and partial implementations were generated with AI-tooling.
-
 use std::collections::HashMap;
 
 use proc_macro2::TokenStream;
@@ -39,7 +15,7 @@ use syn::{Expr, Pat, Stmt};
 /// [`into_token_stream`](SymExpr::into_token_stream) can work purely by index
 /// without carrying string state.
 #[derive(Clone, Debug)]
-enum SymExpr {
+pub(super) enum SymExpr {
     /// A numeric constant.
     Const(f64),
     /// The `i`-th `f64` parameter of the function being differentiated.
@@ -303,7 +279,7 @@ impl SymExpr {
     /// generated function body (e.g. `"__v"`).  [`Var(i)`](SymExpr::Var) nodes
     /// are emitted as `base_var[i]`, so the caller must ensure a binding like
     /// `let __v = [x, y, ...];` is present in the generated code.
-    fn into_token_stream(self) -> TokenStream {
+    pub fn into_token_stream(self) -> TokenStream {
         match self {
             SymExpr::Const(c) => {
                 let lit = proc_macro2::Literal::f64_suffixed(c);
@@ -378,11 +354,13 @@ impl SymExpr {
 /// with `let`-binding names as the function body is walked.  Unknown
 /// identifiers and expressions that cannot be represented symbolically are
 /// wrapped in [`SymExpr::Opaque`].
-fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> SymExpr {
+pub(super) fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> SymExpr {
     match expr {
         Expr::Lit(lit) => {
             if let syn::Lit::Float(f) = &lit.lit {
                 SymExpr::Const(f.base10_parse::<f64>().unwrap())
+            } else if let syn::Lit::Int(i) = &lit.lit {
+                SymExpr::Const(i.base10_parse::<f64>().unwrap())
             } else {
                 SymExpr::Opaque(quote! { #lit })
             }
@@ -495,122 +473,3 @@ fn syn_to_sym(expr: &Expr, bindings: &HashMap<String, SymExpr>) -> SymExpr {
         _ => SymExpr::Opaque(quote! { #expr }),
     }
 }
-
-fn parse_body(block: &syn::Block) -> Option<SymExpr> {
-    let mut bindings = HashMap::new();
-
-    for stmt in &block.stmts {
-        match stmt {
-            Stmt::Local(local) => {
-                if let Pat::Ident(pat_ident) = &local.pat {
-                    let name = pat_ident.ident.to_string();
-                    if let Some(init) = &local.init {
-                        let sym = syn_to_sym(&init.expr, &bindings);
-                        bindings.insert(name, sym);
-                    }
-                }
-            }
-            Stmt::Expr(expr, None) => {
-                return Some(syn_to_sym(expr, &bindings));
-            }
-            _ => {
-                // Unsupported statement type (e.g. semi-colon terminated expr, item, macro).
-                // For simplicity, we require the function body to be a single expression
-                // with optional `let` bindings, so we can skip these.
-            }
-        }
-    }
-
-    None
-}
-
-#[derive(deluxe::ParseMetaItem)]
-struct DerivativeInput {
-    arg: String,
-    dim: usize,
-}
-
-#[proc_macro_attribute]
-pub fn gradient(
-    attr: proc_macro::TokenStream,
-    item: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let input_fn = syn::parse_macro_input!(item as syn::ItemFn);
-    let fn_name = &input_fn.sig.ident;
-    let params = &input_fn.sig.inputs;
-    let body = &input_fn.block;
-
-    let DerivativeInput { arg, dim } = deluxe::parse::<DerivativeInput>(attr.into())
-        .expect("Failed to parse macro attribute arguments for gradient.");
-
-    let sym = match parse_body(body) {
-        Some(s) => s,
-        None => {
-            return syn::Error::new_spanned(
-                body,
-                "Function body must be a single expression for symbolic differentiation",
-            )
-            .to_compile_error()
-            .into();
-        }
-    };
-
-    let grad_components: Vec<TokenStream> = (0..dim)
-        .map(|i| {
-            let d = sym.diff(format!("{}[{}]", arg, i)).simplify();
-            d.into_token_stream()
-        })
-        .collect();
-
-    let grad_name = syn::Ident::new(
-        &format!("{}_gradient", fn_name),
-        proc_macro2::Span::call_site(),
-    );
-
-    let expanded = quote!(
-        #input_fn
-
-        pub fn #grad_name(#params) -> [f64; #dim] {
-            [#(#grad_components),*]
-        }
-    );
-
-    expanded.into()
-}
-
-// #[proc_macro_attribute]
-// pub fn gradient(
-//     _attr: proc_macro::TokenStream,
-//     item: proc_macro::TokenStream,
-// ) -> proc_macro::TokenStream {
-//     let input_fn = syn::parse_macro_input!(item as syn::ItemFn);
-//     let fn_name = &input_fn.sig.ident;
-//     let params = &input_fn.sig.inputs;
-//     let body = &input_fn.block;
-
-//     // Need to check input types
-
-//     let grad_components = parse_body(body)
-//         .expect("Failed to parse function body into symbolic form")
-//         .diff(0) // TODO: handle multiple parameters
-//         .simplify()
-//         .into_token_stream("__v");
-
-//     let expanded = quote!(
-//         #input_fn
-
-//         // Generate the gradient function.
-//         pub fn #fn_name##_gradient(#params) -> [f64; #params.len()] {
-//             let __v = [#(#params),*];
-//             let __f = #fn_name(#(#params),*);
-//             let __sym = parse_body(&#body).expect("Failed to parse function body into symbolic form");
-//             let mut __grad = [0.0; #params.len()];
-//             for i in 0..#params.len() {
-//                 let d = __sym.diff(i).simplify();
-//                 __grad[i] = d.into_token_stream("__v").to_string().parse::<f64>().unwrap();
-//             }
-//             __grad
-//         }
-//     );
-//     expanded.into()
-// }
