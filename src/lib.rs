@@ -31,6 +31,7 @@ pub mod linalg;
 pub mod lp;
 pub mod nlp;
 pub mod qp;
+pub mod state;
 pub mod stochastic;
 pub mod terminators;
 pub mod utils;
