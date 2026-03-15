@@ -1,9 +1,13 @@
 use std::f64::INFINITY;
 use std::ops::{Div, Mul};
 
-use faer::{Col, ColRef, unzip, zip};
+use faer::{Col, ColMut, ColRef, unzip, zip};
 
 use crate::E;
+
+pub fn axpy<'a>(alpha: E, x: ColRef<'a, E>, y: ColMut<'a, E>) {
+    zip!(x, y).for_each(|unzip!(x, y)| *y += alpha * *x);
+}
 
 #[allow(unused)]
 pub(crate) fn cwise_multiply<'a>(x1: ColRef<'a, E>, x2: ColRef<'a, E>) -> Col<E>
