@@ -14,7 +14,10 @@ use dyn_clone::DynClone;
 use enum_dispatch::enum_dispatch;
 use macros::{explicit_options, use_option};
 
-use crate::{E, SolverOptions, SolverState, Status};
+use crate::{
+    E, SolverOptions, Status,
+    state::{Residuals, SolverState},
+};
 
 /// Criterion for deciding when the solver should stop.
 ///
@@ -142,9 +145,9 @@ impl Terminator for ConvergenceTerminator {
     }
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
-        if state.get_primal_feasibility().norm_l2() <= self.options.tolerance * state.x.nrows() as E
-            && state.get_dual_feasibility().norm_l2()
-                <= self.options.tolerance * state.y.nrows() as E
+        let residual = state.residuals();
+        if residual.primal().norm_l2() <= self.options.tolerance * residual.get_n() as E
+            && residual.dual().norm_l2() <= self.options.tolerance * residual.get_m() as E
         {
             Some(Status::Optimal)
         } else {
@@ -157,7 +160,7 @@ impl Terminator for ConvergenceTerminator {
 #[use_option(name = "slow_progress_tolerance", type_ = E, default = "1e-8", description = "Tolerance for detecting slow progress in primal and dual infeasibility.")]
 #[derive(Clone)]
 pub struct SlowProgressTerminator {
-    prev_state: Option<SolverState>,
+    prev_state: Option<Residuals>,
 }
 
 impl SlowProgressTerminator {
@@ -176,16 +179,16 @@ impl Terminator for SlowProgressTerminator {
 
     fn terminate(&mut self, state: &SolverState) -> Option<Status> {
         if let Some(prev) = &self.prev_state {
-            let primal_diff =
-                (state.get_primal_feasibility() - prev.get_primal_feasibility()).norm_l2();
-            let dual_diff = (state.get_dual_feasibility() - prev.get_dual_feasibility()).norm_l2();
+            let residuals = state.residuals();
+            let primal_diff = (residuals.primal() - prev.primal()).norm_l2();
+            let dual_diff = (residuals.dual() - prev.dual()).norm_l2();
             if primal_diff <= self.options.slow_progress_tolerance
                 && dual_diff <= self.options.slow_progress_tolerance
             {
                 return Some(Status::Optimal);
             }
         }
-        self.prev_state = Some(state.clone());
+        self.prev_state = Some(state.residuals().clone());
         None
     }
 }
@@ -303,7 +306,10 @@ mod tests {
     fn test_interruption_terminator_ctrlc() {
         let options = SolverOptions::new();
         let mut terminator = InterruptTerminator::new(&options);
-        let state = SolverState::new(Col::zeros(0), Col::zeros(0), Col::zeros(0), Col::zeros(0)); // Dummy state
+        // let state = SolverState::new(Col::zeros(0), Col::zeros(0), Col::zeros(0), Col::zeros(0)); // Dummy state
+        let n = 0;
+        let m = 0;
+        let state = SolverState::new(n, m); // Dummy state
 
         std::thread::spawn(|| {
             std::thread::sleep(std::time::Duration::from_secs(2));

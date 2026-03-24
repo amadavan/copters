@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 use dyn_clone::DynClone;
 use enum_dispatch::enum_dispatch;
 
-use crate::{E, SolverOptions, SolverState};
+use crate::{E, SolverOptions, state::SolverState};
 
 /// Hook invoked once per solver iteration for logging, monitoring, or early stopping.
 #[enum_dispatch]
@@ -51,15 +51,17 @@ impl Callback for ConvergenceOutput {
     }
 
     fn call(&mut self, state: &SolverState) {
+        let residual = state.residuals();
+        let (n, m) = (residual.dual().nrows(), residual.primal().nrows());
         let txt = format!(
             "| {:5} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} | {:<8.2e} |",
-            state.nit,
-            state.alpha_primal,
-            state.alpha_dual,
-            state.get_primal_feasibility().norm_l2() / state.x.nrows() as E,
-            state.get_dual_feasibility().norm_l2() / state.x.nrows() as E,
-            state.get_cs_lower().norm_l2() / state.x.nrows() as E,
-            state.get_cs_upper().norm_l2() / state.x.nrows() as E,
+            state.nit(),
+            state.alpha_primal(),
+            state.alpha_dual(),
+            residual.primal().norm_l2() / m as E,
+            residual.dual().norm_l2() / n as E,
+            residual.slack_l().norm_l2() / n as E,
+            residual.slack_u().norm_l2() / n as E,
         );
         println!("{txt}");
     }

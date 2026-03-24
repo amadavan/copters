@@ -2,7 +2,7 @@ use macros::{explicit_options, use_option};
 
 use faer::{Col, unzip, zip};
 
-use crate::{E, SolverOptions, state::SolverState};
+use crate::{E, SolverOptions, SolverState};
 
 /// Strategy for computing the step size at each gradient descent iteration.
 pub trait StepSize {
@@ -45,7 +45,7 @@ impl StepSize for LinearDecayStepSize {
     }
 
     fn compute(&mut self, state: &SolverState) -> E {
-        self.options.learning_rate / (1. + state.nit() as E)
+        self.options.learning_rate / (1. + state.nit as E)
     }
 }
 
@@ -62,7 +62,7 @@ impl StepSize for QuadraticDecayStepSize {
     }
 
     fn compute(&mut self, state: &SolverState) -> E {
-        self.options.learning_rate / (1. + (state.nit() as E).powi(2))
+        self.options.learning_rate / (1. + (state.nit as E).powi(2))
     }
 }
 
@@ -84,9 +84,8 @@ impl StepSize for BarzilaiBorweinStepSize {
 
     #[allow(non_snake_case)]
     fn compute(&mut self, state: &SolverState) -> E {
-        let vars = state.variables();
         let step = if let (Some(prev_x), Some(prev_grad)) = (&self.prev_x, &self.prev_grad) {
-            let dx: Col<E> = zip!(&vars.x(), prev_x).map(|unzip!(x_i, x_prev_i)| x_i - x_prev_i);
+            let dx: Col<E> = zip!(&state.x, prev_x).map(|unzip!(x_i, x_prev_i)| x_i - x_prev_i);
             let ddL: Col<E> = zip!(state.dL.as_ref().unwrap(), prev_grad)
                 .map(|unzip!(g_i, g_prev_i)| g_i - g_prev_i);
             let numerator = zip!(&dx, &ddL)

@@ -1,78 +1,102 @@
-use faer::Col;
+use faer::{ColMut, ColRef};
 
-use crate::{E, SolverState};
+use crate::{E, state, state::Residuals};
 
 pub(crate) const DEFAULT_MAX_ITERATIONS: usize = 1000;
 
-#[allow(unused)]
-#[derive(Debug, Clone, PartialEq)]
-pub struct RHS {
-    r_d: Col<E>,
-    r_c: Col<E>,
-    r_l: Col<E>,
-    r_u: Col<E>,
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    mu: E,
+    sigma: E,
+    tau: E,
+    rhs: RHS,
 }
 
-impl From<&SolverState> for RHS {
-    fn from(value: &SolverState) -> Self {
-        Self {
-            r_d: value.dual_feasibility.clone(),
-            r_c: value.primal_feasibility.clone(),
-            r_l: value.cs_lower.clone(),
-            r_u: value.cs_upper.clone(),
-        }
+impl state::Workspace for Workspace {}
+
+impl Workspace {
+    pub fn mu(&self) -> E {
+        self.mu
+    }
+
+    pub fn set_mu(&mut self, value: E) {
+        self.mu = value;
+    }
+
+    pub fn sigma(&self) -> E {
+        self.sigma
+    }
+
+    pub fn set_sigma(&mut self, value: E) {
+        self.sigma = value;
+    }
+
+    pub fn tau(&self) -> E {
+        self.tau
+    }
+
+    pub fn set_tau(&mut self, value: E) {
+        self.tau = value;
+    }
+
+    pub fn rhs(&self) -> &RHS {
+        &self.rhs
+    }
+
+    pub fn rhs_mut(&mut self) -> &mut RHS {
+        &mut self.rhs
     }
 }
 
-// impl From<&mut SolverState> for RHS {
-//     fn from(value: &mut SolverState) -> Self {
-//         Self {
-//             r_d: value.dual_feasibility.clone(),
-//             r_c: value.primal_feasibility.clone(),
-//             r_l: value.cs_lower.clone(),
-//             r_u: value.cs_upper.clone(),
-//         }
-//     }
-// }
+#[derive(Debug, Clone)]
+pub struct RHS {
+    data: Vec<E>,
+    n: usize,
+    m: usize,
+}
 
 impl RHS {
-    pub fn r_d(&self) -> &Col<E> {
-        &self.r_d
-    }
-    pub fn r_d_mut(&mut self) -> &mut Col<E> {
-        &mut self.r_d
-    }
-    pub fn set_r_d(&mut self, value: Col<E>) {
-        self.r_d = value;
+    pub fn new(n: usize, m: usize) -> Self {
+        Self {
+            data: vec![E::from(0.); (n + m + n + n) as usize],
+            n,
+            m,
+        }
     }
 
-    pub fn r_c(&self) -> &Col<E> {
-        &self.r_c
-    }
-    pub fn r_c_mut(&mut self) -> &mut Col<E> {
-        &mut self.r_c
-    }
-    pub fn set_r_c(&mut self, value: Col<E>) {
-        self.r_c = value;
+    pub fn dual(&self) -> ColRef<'_, E> {
+        ColRef::from_slice(&self.data[0..self.m])
     }
 
-    pub fn r_l(&self) -> &Col<E> {
-        &self.r_l
-    }
-    pub fn r_l_mut(&mut self) -> &mut Col<E> {
-        &mut self.r_l
-    }
-    pub fn set_r_l(&mut self, value: Col<E>) {
-        self.r_l = value;
+    pub fn dual_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[0..self.m])
     }
 
-    pub fn r_u(&self) -> &Col<E> {
-        &self.r_u
+    pub fn primal(&self) -> ColRef<'_, E> {
+        ColRef::from_slice(&self.data[self.m..(self.n + self.m)])
     }
-    pub fn r_u_mut(&mut self) -> &mut Col<E> {
-        &mut self.r_u
+
+    pub fn primal_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[self.m..(self.n + self.m)])
     }
-    pub fn set_r_u(&mut self, value: Col<E>) {
-        self.r_u = value;
+
+    pub fn slack_l(&self) -> ColRef<'_, E> {
+        ColRef::from_slice(&self.data[(self.n + self.m)..(self.n + self.m + self.n)])
+    }
+
+    pub fn slack_l_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m)..(self.n + self.m + self.n)])
+    }
+
+    pub fn slack_u(&self) -> ColRef<'_, E> {
+        ColRef::from_slice(&self.data[(self.n + self.m + self.n)..])
+    }
+
+    pub fn slack_u_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m + self.n)..])
+    }
+
+    pub fn copy_from_residual(&mut self, residual: &Residuals) {
+        self.data.copy_from_slice(residual.get_raw());
     }
 }

@@ -4,10 +4,10 @@ use faer::{Col, ColMut, ColRef};
 use crate::{E, linalg};
 
 /// Marker trait for algorithm-specific workspace data held in a [`View`].
-pub trait Workspace {}
+pub trait Workspace: Clone {}
 
 /// Bundles a mutable reference to the solver state with algorithm-specific workspace data.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct View<'a, W: Workspace> {
     state: &'a mut SolverState,
     work: W,
@@ -43,11 +43,38 @@ impl<'a, W: Workspace> View<'a, W> {
     }
 }
 
+/// Status codes for optimization solvers.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum Status {
+    #[default]
+    /// The solver is still running.
+    InProgress,
+    /// An optimal solution was found.
+    Optimal,
+    /// The problem is infeasible.
+    Infeasible,
+    /// The problem is unbounded.
+    Unbounded,
+    /// The status is unknown or not determined.
+    Unknown,
+    /// The solver stopped due to a time limit.
+    TimeLimit,
+    /// The solver stopped due to an iteration limit.
+    IterationLimit,
+    /// The solver was interrupted (e.g., by user or signal).
+    Interrupted,
+}
+
 /// Current iterate: primal/dual variables and KKT residuals.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SolverState {
     vars: Variables,
     residuals: Residuals,
+
+    nit: usize,
+    status: Status,
+    alpha_primal: E,
+    alpha_dual: E,
 }
 
 impl SolverState {
@@ -55,6 +82,11 @@ impl SolverState {
         Self {
             vars: Variables::new(n, m),
             residuals: Residuals::new(n, m),
+
+            nit: 0,
+            status: Status::InProgress,
+            alpha_primal: E::from(1.),
+            alpha_dual: E::from(1.),
         }
     }
 
@@ -65,6 +97,43 @@ impl SolverState {
     pub fn residuals(&self) -> &Residuals {
         &self.residuals
     }
+
+    pub fn nit(&self) -> usize {
+        self.nit
+    }
+
+    pub fn inc_nit(&mut self) {
+        self.nit += 1;
+    }
+
+    pub fn set_nit(&mut self, nit: usize) {
+        self.nit = nit;
+    }
+
+    pub fn set_status(&mut self, status: Status) {
+        self.status = status;
+    }
+
+    pub fn status(&self) -> Status {
+        self.status
+    }
+
+    pub fn alpha_primal(&self) -> E {
+        self.alpha_primal
+    }
+
+    pub fn alpha_dual(&self) -> E {
+        self.alpha_dual
+    }
+
+    pub fn alpha(&self) -> (E, E) {
+        (self.alpha_primal, self.alpha_dual)
+    }
+
+    pub fn set_alpha(mut self, alpha_primal: E, alpha_dual: E) {
+        self.alpha_primal = alpha_primal;
+        self.alpha_dual = alpha_dual;
+    }
 }
 
 /// Primal and dual variables stored contiguously as `[x | y | z_l | z_u]`.
@@ -72,7 +141,7 @@ impl SolverState {
 /// - `x`: primal (n)
 /// - `y`: equality multipliers (m)
 /// - `z_l`, `z_u`: bound multipliers (n each)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Variables {
     data: Vec<E>,
     n: usize,
@@ -147,7 +216,7 @@ impl Variables {
 }
 
 /// KKT residuals stored contiguously as `[dual | primal | slack_l | slack_u]`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Residuals {
     data: Vec<E>,
     n: usize,
@@ -175,16 +244,32 @@ impl Residuals {
         ColRef::from_slice(&self.data[0..self.n])
     }
 
+    pub fn dual_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[0..self.n])
+    }
+
     pub fn primal(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[self.n..(self.n + self.m)])
+    }
+
+    pub fn primal_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[self.n..(self.n + self.m)])
     }
 
     pub fn slack_l(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[(self.n + self.m)..(self.n + self.m + self.n)])
     }
 
+    pub fn slack_l_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m)..(self.n + self.m + self.n)])
+    }
+
     pub fn slack_u(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[(self.n + self.m + self.n)..])
+    }
+
+    pub fn slack_u_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m + self.n)..])
     }
 
     pub fn get_raw(&self) -> &Vec<E> {
@@ -193,7 +278,7 @@ impl Residuals {
 }
 
 /// Newton step directions `[dx | dy | dz_l | dz_u]`, matching the layout of `Variables`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Delta {
     data: Vec<E>,
     n: usize,
@@ -221,16 +306,32 @@ impl Delta {
         ColRef::from_slice(&self.data[0..self.n])
     }
 
+    pub fn dx_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[0..self.n])
+    }
+
     pub fn dy(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[self.n..(self.n + self.m)])
+    }
+
+    pub fn dy_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[self.n..(self.n + self.m)])
     }
 
     pub fn dz_l(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[(self.n + self.m)..(self.n + self.m + self.n)])
     }
 
+    pub fn dz_l_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m)..(self.n + self.m + self.n)])
+    }
+
     pub fn dz_u(&self) -> ColRef<'_, E> {
         ColRef::from_slice(&self.data[(self.n + self.m + self.n)..])
+    }
+
+    pub fn dz_u_mut(&mut self) -> ColMut<'_, E> {
+        ColMut::from_slice_mut(&mut self.data[(self.n + self.m + self.n)..])
     }
 
     pub fn get_raw(&self) -> &Vec<E> {

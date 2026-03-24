@@ -1,25 +1,13 @@
 pub mod stepsize;
 
-use faer::{Col, sparse::SparseColMat, unzip, zip};
+use faer::{unzip, zip};
 use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, IterativeSolver, OptimizationProgram, SolverOptions,
+    E, I, IterativeSolver, OptimizationProgram, SolverOptions, SolverState, Status, ipm,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
-    state::SolverState,
-    state::Status,
 };
-
-#[allow(non_snake_case)]
-struct Workspace {
-    f: E,
-    g: Col<E>,
-    df: Col<E>,
-    dg: SparseColMat<I, E>,
-    h: Option<SparseColMat<I, E>>,
-    dL: Option<Col<E>>,
-}
 
 /// Projected gradient descent solver for nonlinear programs.
 ///

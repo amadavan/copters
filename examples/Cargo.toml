@@ -1,0 +1,8 @@
+[package]
+name = "copters-examples"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+copters = { path = ".." }
+symdiff = "2.0.0"
