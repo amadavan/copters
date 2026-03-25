@@ -1,24 +1,60 @@
 pub mod stepsize;
 
-use faer::{Col, sparse::SparseColMat, unzip, zip};
+use std::ops::{AddAssign, SubAssign};
+
+use faer::{Col, ColRef, sparse::SparseColMat, unzip, zip};
 use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
     E, I, IterativeSolver, OptimizationProgram, SolverOptions,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
-    state::SolverState,
-    state::Status,
+    state::{self, Delta, SolverState, Status, View},
 };
 
 #[allow(non_snake_case)]
-struct Workspace {
+#[derive(Debug, Clone)]
+pub struct Workspace {
     f: E,
     g: Col<E>,
     df: Col<E>,
     dg: SparseColMat<I, E>,
     h: Option<SparseColMat<I, E>>,
-    dL: Option<Col<E>>,
+    dL: Col<E>,
+}
+
+impl Workspace {
+    fn new(n: usize, m: usize) -> Self {
+        Self {
+            f: E::from(0.),
+            g: Col::zeros(m),
+            df: Col::zeros(n),
+            dg: SparseColMat::try_new_from_nonnegative_triplets(n, m, &[]).unwrap(),
+            h: None,
+            dL: Col::zeros(n),
+        }
+    }
+
+    fn update(&mut self, nlp: &NonlinearProgram, x: &ColRef<E>, y: &ColRef<E>) {
+        // self.f = nlp.f(x);
+        self.g = nlp.g(x);
+        self.df = nlp.df(x);
+        self.dg = nlp.dg(x);
+        // if let Some(h_eval) = &nlp.h {
+        //     self.h = Some(h_eval(x, y)); // Placeholder for Hessian evaluation
+        // }
+    }
+
+    #[allow(non_snake_case)]
+    fn set_dL(&mut self, dL: Col<E>) {
+        self.dL = dL;
+    }
+}
+
+impl state::Workspace for Workspace {
+    fn new<'a, P: OptimizationProgram>(program: &'a P, state: &'a mut SolverState) -> Self {
+        Self::new(state.variables().x().nrows(), state.variables().y().nrows())
+    }
 }
 
 /// Projected gradient descent solver for nonlinear programs.
@@ -39,7 +75,7 @@ struct Workspace {
 /// constant, linear decay, quadratic decay).
 #[explicit_options(name = SolverOptions)]
 #[use_option(name="learning_rate", type_=E, default="0.1", description="Learning rate for gradient descent.")]
-#[use_option(name="max_iterations", type_=I, description="Maximum number of iterations for gradient descent.")]
+#[use_option(name="max_iterations", type_=I, default="0", description="Maximum number of iterations for gradient descent.")]
 pub struct GradientDescent<'a, SS: StepSize> {
     nlp: &'a NonlinearProgram,
     step: SS,
@@ -51,28 +87,37 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
     /// Updates `state.x` and `state.y` by taking a gradient step on the
     /// Lagrangian, projects `x` onto the bound constraints, and computes
     /// primal/dual infeasibility measures.
-    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
-        state.df = Some(self.nlp.df(&state.x));
-        state.g = Some(self.nlp.g(&state.x));
-        state.dg = Some(self.nlp.dg(&state.x));
+    fn iterate(&mut self, view: &mut View<NonlinearProgram, Workspace>) -> Result<Status, Problem> {
+        // Update the workspace
 
-        state.dL =
-            Some(state.df.as_ref().unwrap() + state.dg.as_ref().unwrap().transpose() * &state.y); // Gradient of the Lagrangian w.r.t. x
+        let state = view.state().clone();
+        let vars = state.variables();
+        view.work_mut().update(self.nlp, &vars.x(), &vars.y());
+        let dL = view.work().df.as_ref() + view.work().dg.as_ref().transpose() * &vars.y(); // Gradient of the Lagrangian w.r.t. x
+        view.work_mut().set_dL(dL);
 
-        let step_size = self.step.compute(state);
-        state.x -= step_size * state.dL.as_ref().unwrap(); // Simple gradient step on the objective
-        state.y += step_size * state.g.as_ref().unwrap(); // Simple gradient step on the constraints
+        let work = view.work().clone();
+
+        let step_size = self.step.compute(&view);
+        view.state_mut().delta_mut().dx_mut().copy_from(-&work.dL); // Store the primal gradient in the delta for potential use in line search or diagnostics
+        view.state_mut().delta_mut().dy_mut().copy_from(&work.g); // Store the constraint violation in the delta for potential use in line search or diagnostics
+
+        let delta = view.state().delta().clone();
+        view.state_mut()
+            .variables_mut()
+            .update(step_size, step_size, &delta);
 
         // Ensure feasibility of the primal variables
+        let vars = view.state_mut().variables_mut();
         if let Some(l) = self.nlp.l() {
-            zip!(&mut state.x, l).for_each(|unzip!(x_i, l_i)| {
+            zip!(&mut vars.x_mut(), l).for_each(|unzip!(x_i, l_i)| {
                 if *x_i < *l_i {
                     *x_i = *l_i;
                 }
             });
         }
         if let Some(u) = self.nlp.u() {
-            zip!(&mut state.x, u).for_each(|unzip!(x_i, u_i)| {
+            zip!(&mut vars.x_mut(), u).for_each(|unzip!(x_i, u_i)| {
                 if *x_i > *u_i {
                     *x_i = *u_i;
                 }
@@ -80,10 +125,16 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
         }
 
         // Update the state
-        self.nlp.update_residual(state);
-
-        state.alpha_primal = step_size;
-        state.alpha_dual = step_size;
+        // self.nlp.update_residual(state);
+        view.state_mut()
+            .residuals_mut()
+            .dual_mut()
+            .copy_from(&work.dL); // Update dual residual with constraint violation
+        view.state_mut()
+            .residuals_mut()
+            .primal_mut()
+            .copy_from(&work.g); // Update primal residual with gradient of the Lagrangian
+        view.state_mut().set_alpha(step_size, step_size);
 
         Ok(Status::InProgress) // Placeholder for actual status based on convergence criteria
     }
@@ -101,20 +152,19 @@ impl<'a, SS: StepSize> NLPSolver<'a> for GradientDescent<'a, SS> {
 }
 
 impl<'a, SS: StepSize> IterativeSolver for GradientDescent<'a, SS> {
+    type Program = NonlinearProgram;
+    type Workspace = Workspace;
+
     fn get_max_iterations(&self) -> usize {
         if self.options.max_iterations as usize > 0 {
             self.options.max_iterations as usize
         } else {
-            ipm::DEFAULT_MAX_ITERATIONS
+            1000
         }
     }
 
-    fn get_program(&self) -> &dyn OptimizationProgram {
-        self.nlp
-    }
-
-    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem> {
-        self.iterate(state)
+    fn iterate(&mut self, view: &mut View<NonlinearProgram, Workspace>) -> Result<Status, Problem> {
+        self.iterate(view)
     }
 }
 
@@ -123,7 +173,7 @@ mod tests {
     use faer::sparse::{SparseColMat, Triplet};
 
     use crate::{
-        callback::ConvergenceOutput, nlp::gd::stepsize::ConstantStepSize,
+        SolverHooks, callback::ConvergenceOutput, nlp::gd::stepsize::ConstantStepSize,
         terminators::SlowProgressTerminator,
     };
 
@@ -146,17 +196,28 @@ mod tests {
                 SparseColMat::<I, E>::try_new_from_triplets(1, 2, &triplets) // Jacobian of constraint
                     .unwrap()
             },
-            None,
+            None::<fn(&ColRef<E>, &ColRef<E>) -> SparseColMat<I, E>>,
             None,
             None,
         );
 
-        let mut state = SolverState::new(
-            vec![0.0, 0.0].into_iter().collect(),
-            vec![1.0].into_iter().collect(),
-            vec![0.0, 0.0].into_iter().collect(),
-            vec![0.0, 0.0].into_iter().collect(),
-        );
+        let mut state = SolverState::new(2, 1);
+        state
+            .variables_mut()
+            .x_mut()
+            .copy_from(&vec![0.0, 0.0].into_iter().collect::<Col<E>>());
+        state
+            .variables_mut()
+            .y_mut()
+            .copy_from(&vec![1.0].into_iter().collect::<Col<E>>());
+        state
+            .variables_mut()
+            .z_l_mut()
+            .copy_from(&vec![0.0, 0.0].into_iter().collect::<Col<E>>());
+        state
+            .variables_mut()
+            .z_u_mut()
+            .copy_from(&vec![0.0, 0.0].into_iter().collect::<Col<E>>());
 
         let options = SolverOptions::new();
         let mut properties = SolverHooks {
@@ -165,9 +226,11 @@ mod tests {
         };
 
         let mut gd_solver = GradientDescent::<ConstantStepSize>::new(&simple_nlp, &options);
-        let result = gd_solver.solve(&mut state, &mut properties).unwrap();
+        let result = gd_solver
+            .optimize(&simple_nlp, &mut state, &mut properties)
+            .unwrap();
         assert_eq!(result, Status::Optimal);
-        assert!((state.x[0] - 1.0).abs() < 1e-3);
-        assert!((state.x[1] - 2.0).abs() < 1e-3);
+        assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
+        assert!((state.variables().x()[1] - 2.0).abs() < 1e-3);
     }
 }

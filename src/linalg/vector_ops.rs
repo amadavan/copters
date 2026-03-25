@@ -89,6 +89,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_axpy() {
+        let mut y = Col::from_fn(3, |i| i as E);
+        let x = Col::from_fn(3, |i| (i + 1) as E);
+        axpy(2.0, x.as_ref(), y.as_mut());
+        assert_eq!(y, Col::from_fn(3, |i| (i as E) + 2.0 * ((i + 1) as E)));
+    }
+
+    #[test]
     fn test_cwise_quotient() {
         let x1_data = [1.0, 2.0, 3.0];
         let x2_data = [4.0, 5.0, 6.0];

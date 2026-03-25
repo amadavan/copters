@@ -1,10 +1,11 @@
-pub mod gd;
-pub mod ipm;
+// pub mod ipm;
 
-use faer::{Col, sparse::SparseColMat};
+use faer::{Col, ColRef, sparse::SparseColMat};
 use macros::use_option;
 
-use crate::{E, I, IterativeSolver, SolverOptions};
+use crate::{E, I, IterativeSolver, OptimizationProgram, SolverOptions};
+
+pub mod gd;
 
 /// A nonlinear program of the form:
 ///
@@ -19,7 +20,7 @@ use crate::{E, I, IterativeSolver, SolverOptions};
 /// (optional) Hessian of the Lagrangian. The vectors `l` and `u` are optional
 /// lower and upper bounds on the decision variables.
 #[allow(unused)]
-#[use_option(name = "nlp_solver_type", type_ = crate::nlp::NLPSolverType, default = "gradient_descent", description = "Type of NLP solver to use.")]
+// #[use_option(name = "nlp_solver_type", type_ = crate::nlp::NLPSolverType, default = "gradient_descent", description = "Type of NLP solver to use.")]
 pub struct NonlinearProgram {
     /// Number of decision variables.
     n_var: I,
@@ -27,15 +28,15 @@ pub struct NonlinearProgram {
     n_cons: I,
 
     /// Objective function `f(x) -> scalar`.
-    f: Box<dyn Fn(&Col<E>) -> E>,
+    f: Box<dyn Fn(&ColRef<E>) -> E>,
     /// Equality constraint function `g(x) -> Col`.
-    g: Box<dyn Fn(&Col<E>) -> Col<E>>,
+    g: Box<dyn Fn(&ColRef<E>) -> Col<E>>,
     /// Gradient of the objective `∇f(x)`.
-    df: Box<dyn Fn(&Col<E>) -> Col<E>>,
+    df: Box<dyn Fn(&ColRef<E>) -> Col<E>>,
     /// Jacobian of the constraints `∇g(x)` (sparse).
-    dg: Box<dyn Fn(&Col<E>) -> SparseColMat<I, E>>,
+    dg: Box<dyn Fn(&ColRef<E>) -> SparseColMat<I, E>>,
     /// Hessian of the Lagrangian `∇²L(x, y)` (optional, sparse).
-    h: Option<Box<dyn Fn(&Col<E>, &Col<E>) -> SparseColMat<I, E>>>,
+    h: Option<Box<dyn Fn(&ColRef<E>, &ColRef<E>) -> SparseColMat<I, E>>>,
 
     /// Lower bounds on the decision variables (optional).
     l: Option<Col<E>>,
@@ -49,11 +50,11 @@ impl NonlinearProgram {
     pub fn new(
         n_var: I,
         n_cons: I,
-        f: impl Fn(&Col<E>) -> E + 'static,
-        g: impl Fn(&Col<E>) -> Col<E> + 'static,
-        df: impl Fn(&Col<E>) -> Col<E> + 'static,
-        dg: impl Fn(&Col<E>) -> SparseColMat<I, E> + 'static,
-        h: Option<impl Fn(&Col<E>, &Col<E>) -> SparseColMat<I, E> + 'static>,
+        f: impl Fn(&ColRef<E>) -> E + 'static,
+        g: impl Fn(&ColRef<E>) -> Col<E> + 'static,
+        df: impl Fn(&ColRef<E>) -> Col<E> + 'static,
+        dg: impl Fn(&ColRef<E>) -> SparseColMat<I, E> + 'static,
+        h: Option<impl Fn(&ColRef<E>, &ColRef<E>) -> SparseColMat<I, E> + 'static>,
         l: Option<Col<E>>,
         u: Option<Col<E>>,
     ) -> Self {
@@ -65,30 +66,30 @@ impl NonlinearProgram {
             df: Box::new(df),
             dg: Box::new(dg),
             h: h.map(|h_box| {
-                Box::new(h_box) as Box<dyn Fn(&Col<E>, &Col<E>) -> SparseColMat<I, E>>
+                Box::new(h_box) as Box<dyn Fn(&ColRef<E>, &ColRef<E>) -> SparseColMat<I, E>>
             }),
             l,
             u,
         }
     }
 
-    pub fn f(&self, x: &Col<E>) -> E {
+    pub fn f(&self, x: &ColRef<E>) -> E {
         (self.f)(x)
     }
 
-    pub fn g(&self, x: &Col<E>) -> Col<E> {
+    pub fn g(&self, x: &ColRef<E>) -> Col<E> {
         (self.g)(x)
     }
 
-    pub fn df(&self, x: &Col<E>) -> Col<E> {
+    pub fn df(&self, x: &ColRef<E>) -> Col<E> {
         (self.df)(x)
     }
 
-    pub fn dg(&self, x: &Col<E>) -> SparseColMat<I, E> {
+    pub fn dg(&self, x: &ColRef<E>) -> SparseColMat<I, E> {
         (self.dg)(x)
     }
 
-    pub fn h(&self, x: &Col<E>, y: &Col<E>) -> Option<SparseColMat<I, E>> {
+    pub fn h(&self, x: &ColRef<E>, y: &ColRef<E>) -> Option<SparseColMat<I, E>> {
         if let Some(h_eval) = &self.h {
             return Some((h_eval)(x, y));
         }
@@ -103,6 +104,8 @@ impl NonlinearProgram {
         self.u.as_ref()
     }
 }
+
+impl OptimizationProgram for NonlinearProgram {}
 
 pub trait NLPSolver<'a>: IterativeSolver {
     fn new(nlp: &'a NonlinearProgram, options: &SolverOptions) -> Self
