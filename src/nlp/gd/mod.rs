@@ -89,35 +89,32 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
     /// primal/dual infeasibility measures.
     fn iterate(&mut self, view: &mut View<NonlinearProgram, Workspace>) -> Result<Status, Problem> {
         // Update the workspace
+        let View {
+            program,
+            state,
+            work,
+        } = view; // Destructure to access program and state
 
-        let state = view.state().clone();
-        let vars = state.variables();
-        view.work_mut().update(self.nlp, &vars.x(), &vars.y());
-        let dL = view.work().df.as_ref() + view.work().dg.as_ref().transpose() * &vars.y(); // Gradient of the Lagrangian w.r.t. x
-        view.work_mut().set_dL(dL);
+        work.update(self.nlp, &state.vars.x(), &state.vars.y());
+        let dL = work.df.as_ref() + work.dg.as_ref().transpose() * &state.vars.y(); // Gradient of the Lagrangian w.r.t. x
+        work.set_dL(dL);
 
-        let work = view.work().clone();
+        let step_size = self.step.compute(&state, work);
+        state.delta.dx_mut().copy_from(-&work.dL); // Store the primal gradient in the delta for potential use in line search or diagnostics
+        state.delta.dy_mut().copy_from(&work.g); // Store the constraint violation in the delta for potential use in line search or diagnostics
 
-        let step_size = self.step.compute(&view);
-        view.state_mut().delta_mut().dx_mut().copy_from(-&work.dL); // Store the primal gradient in the delta for potential use in line search or diagnostics
-        view.state_mut().delta_mut().dy_mut().copy_from(&work.g); // Store the constraint violation in the delta for potential use in line search or diagnostics
-
-        let delta = view.state().delta().clone();
-        view.state_mut()
-            .variables_mut()
-            .update(step_size, step_size, &delta);
+        state.vars.update(step_size, step_size, &state.delta);
 
         // Ensure feasibility of the primal variables
-        let vars = view.state_mut().variables_mut();
         if let Some(l) = self.nlp.l() {
-            zip!(&mut vars.x_mut(), l).for_each(|unzip!(x_i, l_i)| {
+            zip!(&mut state.vars.x_mut(), l).for_each(|unzip!(x_i, l_i)| {
                 if *x_i < *l_i {
                     *x_i = *l_i;
                 }
             });
         }
         if let Some(u) = self.nlp.u() {
-            zip!(&mut vars.x_mut(), u).for_each(|unzip!(x_i, u_i)| {
+            zip!(&mut state.vars.x_mut(), u).for_each(|unzip!(x_i, u_i)| {
                 if *x_i > *u_i {
                     *x_i = *u_i;
                 }
@@ -125,16 +122,10 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
         }
 
         // Update the state
-        // self.nlp.update_residual(state);
-        view.state_mut()
-            .residuals_mut()
-            .dual_mut()
-            .copy_from(&work.dL); // Update dual residual with constraint violation
-        view.state_mut()
-            .residuals_mut()
-            .primal_mut()
-            .copy_from(&work.g); // Update primal residual with gradient of the Lagrangian
-        view.state_mut().set_alpha(step_size, step_size);
+        state.residuals.primal_mut().copy_from(&work.g); // Update primal residual with constraint violation
+        state.residuals.dual_mut().copy_from(&work.dL); // Update dual residual with gradient of the Lagrangian
+        state.alpha_primal = step_size;
+        state.alpha_dual = step_size;
 
         Ok(Status::InProgress) // Placeholder for actual status based on convergence criteria
     }

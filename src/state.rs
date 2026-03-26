@@ -11,9 +11,9 @@ pub trait Workspace: Clone {
 /// Bundles a mutable reference to the solver state with algorithm-specific workspace data.
 #[derive(Debug)]
 pub struct View<'a, P: OptimizationProgram, W: Workspace> {
-    program: &'a P,
-    state: &'a mut SolverState,
-    work: W,
+    pub(crate) program: &'a P,
+    pub(crate) state: &'a mut SolverState,
+    pub(crate) work: W,
 }
 
 impl<'a, P: OptimizationProgram, W: Workspace> View<'a, P, W> {
@@ -80,14 +80,14 @@ pub enum Status {
 /// Current iterate: primal/dual variables and KKT residuals.
 #[derive(Debug, Clone)]
 pub struct SolverState {
-    vars: Variables,
-    residuals: Residuals,
-    delta: Delta,
+    pub vars: Variables,
+    pub residuals: Residuals,
+    pub delta: Delta,
 
-    nit: usize,
-    status: Status,
-    alpha_primal: E,
-    alpha_dual: E,
+    pub nit: usize,
+    pub status: Status,
+    pub alpha_primal: E,
+    pub alpha_dual: E,
 }
 
 impl SolverState {

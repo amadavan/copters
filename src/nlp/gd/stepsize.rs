@@ -16,7 +16,7 @@ pub trait StepSize {
         Self: Sized;
 
     /// Computes the step size for the current iteration.
-    fn compute(&mut self, view: &View<NonlinearProgram, Workspace>) -> E;
+    fn compute(&mut self, state: &SolverState, work: &Workspace) -> E;
 }
 
 /// Constant step size: `α_k = learning_rate` for all `k`.
@@ -31,7 +31,7 @@ impl StepSize for ConstantStepSize {
         }
     }
 
-    fn compute(&mut self, _view: &View<NonlinearProgram, Workspace>) -> E {
+    fn compute(&mut self, _state: &SolverState, _work: &Workspace) -> E {
         self.options.learning_rate
     }
 }
@@ -48,8 +48,8 @@ impl StepSize for LinearDecayStepSize {
         }
     }
 
-    fn compute(&mut self, view: &View<NonlinearProgram, Workspace>) -> E {
-        self.options.learning_rate / (1. + view.state().nit() as E)
+    fn compute(&mut self, state: &SolverState, _work: &Workspace) -> E {
+        self.options.learning_rate / (1. + state.nit() as E)
     }
 }
 
@@ -65,8 +65,8 @@ impl StepSize for QuadraticDecayStepSize {
         }
     }
 
-    fn compute(&mut self, view: &View<NonlinearProgram, Workspace>) -> E {
-        self.options.learning_rate / (1. + (view.state().nit() as E).powi(2))
+    fn compute(&mut self, state: &SolverState, _work: &Workspace) -> E {
+        self.options.learning_rate / (1. + (state.nit() as E).powi(2))
     }
 }
 
@@ -87,12 +87,12 @@ impl StepSize for BarzilaiBorweinStepSize {
     }
 
     #[allow(non_snake_case)]
-    fn compute(&mut self, view: &View<NonlinearProgram, Workspace>) -> E {
-        let vars = view.state().variables();
+    fn compute(&mut self, state: &SolverState, work: &Workspace) -> E {
+        let vars: &crate::state::Variables = state.variables();
         let step = if let (Some(prev_x), Some(prev_grad)) = (&self.prev_x, &self.prev_grad) {
             let dx: Col<E> = zip!(&vars.x(), prev_x).map(|unzip!(x_i, x_prev_i)| x_i - x_prev_i);
-            let ddL: Col<E> = zip!(view.work().dL.as_ref(), prev_grad)
-                .map(|unzip!(g_i, g_prev_i)| g_i - g_prev_i);
+            let ddL: Col<E> =
+                zip!(work.dL.as_ref(), prev_grad).map(|unzip!(g_i, g_prev_i)| g_i - g_prev_i);
             let numerator = zip!(&dx, &ddL)
                 .map(|unzip!(dx_i, ddL_i)| dx_i * ddL_i)
                 .sum();
@@ -108,7 +108,7 @@ impl StepSize for BarzilaiBorweinStepSize {
             1.
         };
         self.prev_x = Some(vars.x().to_owned());
-        self.prev_grad = Some(view.work().dL.clone());
+        self.prev_grad = Some(work.dL.clone());
         step
     }
 }
