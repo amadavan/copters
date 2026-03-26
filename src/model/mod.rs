@@ -31,8 +31,8 @@ pub struct VarId(I);
 #[derive(Debug, Clone)]
 pub struct Var {
     name: String,
-    lb: E,
-    ub: E,
+    pub lb: E,
+    pub ub: E,
     idx: VarId,
 }
 
@@ -41,16 +41,8 @@ impl Var {
         &self.name
     }
 
-    pub fn lb(&self) -> E {
-        self.lb
-    }
-
     fn set_lb(&mut self, lb: E) {
         self.lb = lb;
-    }
-
-    pub fn ub(&self) -> E {
-        self.ub
     }
 
     fn set_ub(&mut self, ub: E) {
@@ -110,11 +102,11 @@ impl VarPool {
     }
 }
 
-impl Mul<E> for &Var {
+impl Mul<E> for VarId {
     type Output = LinExpr;
 
     fn mul(self, rhs: E) -> Self::Output {
-        LinExpr::new(vec![(self.idx, rhs)], E::from(0.))
+        LinExpr::new(vec![(self, rhs)], E::from(0.))
     }
 }
 
@@ -124,10 +116,10 @@ pub struct ConstrId(I);
 #[derive(Debug, Clone)]
 pub struct LinConstr {
     name: String,
-    expr: LinExpr,
-    constr_type: ConstrType,
-    lb: E,
-    ub: E,
+    pub expr: LinExpr,
+    pub constr_type: ConstrType,
+    pub lb: E,
+    pub ub: E,
     idx: ConstrId,
 }
 
@@ -204,78 +196,106 @@ impl LinConstrPool {
     fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
         self.constrs.iter().find(|constr| constr.name == name)
     }
-
-    fn remove_constr(&mut self, idx: ConstrId) {
-        if let Some(pos) = self.constrs.iter().position(|constr| constr.idx == idx) {
-            self.constrs.remove(pos);
-            // Update indices of remaining constraints
-            self.constrs
-                .iter_mut()
-                .filter(|constr| constr.idx > idx)
-                .for_each(|constr| constr.idx = ConstrId(constr.idx.0 - 1));
-        }
-    }
 }
 
 pub struct LinearModel {
-    vars: VarPool,
+    var_pool: VarPool,
+    constr_pool: LinConstrPool,
+
+    vars: Vec<VarId>,
     sense: ObjSense,
     lin_obj: LinExpr,
-    constrs: LinConstrPool,
+    constrs: Vec<ConstrId>,
 }
 
 impl LinearModel {
     pub fn new() -> Self {
         Self {
-            vars: VarPool::new(),
+            var_pool: VarPool::new(),
+            constr_pool: LinConstrPool::new(),
+
+            vars: Vec::new(),
             sense: ObjSense::Minimize,
             lin_obj: LinExpr::default(),
-            constrs: LinConstrPool::new(),
+            constrs: Vec::new(),
         }
     }
 
     pub fn vars(&self) -> Vec<&Var> {
-        self.vars.vars.iter().collect()
+        self.vars
+            .iter()
+            .filter_map(|&var_id| self.var_pool.get_var(var_id))
+            .collect()
     }
 
     pub fn add_var(&mut self, lb: E, ub: E) -> VarId {
-        self.vars.add_var(lb, ub)
+        let var_id = self.var_pool.add_var(lb, ub);
+        self.vars.push(var_id);
+        var_id
     }
 
     pub fn get_var(&self, idx: VarId) -> Option<&Var> {
-        self.vars.get_var(idx)
+        self.var_pool.get_var(idx)
     }
 
     pub fn get_var_mut(&mut self, idx: VarId) -> Option<&mut Var> {
-        self.vars.get_var_mut(idx)
+        self.var_pool.get_var_mut(idx)
     }
 
     pub fn get_var_by_name(&self, name: &str) -> Option<&Var> {
-        self.vars.get_var_by_name(name)
+        self.var_pool.get_var_by_name(name)
+    }
+
+    pub fn remove_var(&mut self, var: VarId) {
+        if let Some(pos) = self.vars.iter().position(|&var_id| var_id == var) {
+            let _ = self.vars.remove(pos);
+
+            self.constrs.iter().for_each(|&constr_id| {
+                if let Some(constr) = self.constr_pool.get_constr_mut(constr_id) {
+                    constr
+                        .expr_mut()
+                        .coeffs_mut()
+                        .retain(|&(v_id, _)| v_id != var);
+                }
+            });
+
+            self.lin_obj.coeffs_mut().retain(|&(v_id, _)| v_id != var);
+        }
     }
 
     pub fn constrs(&self) -> Vec<&LinConstr> {
-        self.constrs.constrs.iter().collect()
+        self.constrs
+            .iter()
+            .filter_map(|&constr_id| self.constr_pool.get_constr(constr_id))
+            .collect()
     }
 
     pub fn add_constr(&mut self, expr: LinExpr, constr_type: ConstrType, lb: E, ub: E) -> ConstrId {
-        self.constrs.add_constr(expr, constr_type, lb, ub)
+        let constr_id = self.constr_pool.add_constr(expr, constr_type, lb, ub);
+        self.constrs.push(constr_id);
+        constr_id
     }
 
     pub fn get_constr(&self, idx: ConstrId) -> Option<&LinConstr> {
-        self.constrs.get_constr(idx)
+        self.constr_pool.get_constr(idx)
     }
 
     pub fn get_constr_mut(&mut self, idx: ConstrId) -> Option<&mut LinConstr> {
-        self.constrs.get_constr_mut(idx)
+        self.constr_pool.get_constr_mut(idx)
     }
 
     pub fn remove_constr(&mut self, constr: ConstrId) {
-        self.constrs.remove_constr(constr);
+        if let Some(pos) = self
+            .constrs
+            .iter()
+            .position(|&constr_id| constr_id == constr)
+        {
+            self.constrs.remove(pos);
+        }
     }
 
     pub fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
-        self.constrs.get_constr_by_name(name)
+        self.constr_pool.get_constr_by_name(name)
     }
 
     pub fn objective(&self) -> &LinExpr {

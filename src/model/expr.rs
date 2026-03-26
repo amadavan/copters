@@ -23,6 +23,10 @@ impl LinExpr {
         &self.coeffs
     }
 
+    pub fn coeffs_mut(&mut self) -> &mut Vec<(VarId, E)> {
+        &mut self.coeffs
+    }
+
     pub fn constant(&self) -> E {
         self.constant
     }
