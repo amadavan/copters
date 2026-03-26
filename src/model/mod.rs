@@ -1,309 +1,392 @@
-use crate::E;
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    ops::{Add, AddAssign, Mul, Sub, SubAssign},
+};
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Expr {
-    Const(E),
-    Var(Box<Var>),
-    Param(Box<Param>),
-    Add(Box<Expr>, Box<Expr>),
-    Sub(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Div(Box<Expr>, Box<Expr>),
-    Pow(Box<Expr>, i32),
-    Sin(Box<Expr>),
-    Cos(Box<Expr>),
+use crate::{E, I, nlp::NonlinearProgram, state::Status};
+
+pub mod expr;
+
+pub type LinExpr = expr::LinExpr;
+pub type QuadExpr = expr::QuadExpr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjSense {
+    Minimize,
+    Maximize,
 }
 
-impl Expr {
-    pub fn evaluate(&self, var_values: &[E]) -> E {
-        match self {
-            Expr::Const(c) => *c,
-            Expr::Var(v) => v.value,
-            Expr::Param(p) => p.value,
-            Expr::Add(e1, e2) => e1.evaluate(var_values) + e2.evaluate(var_values),
-            Expr::Sub(e1, e2) => e1.evaluate(var_values) - e2.evaluate(var_values),
-            Expr::Mul(e1, e2) => e1.evaluate(var_values) * e2.evaluate(var_values),
-            Expr::Div(e1, e2) => e1.evaluate(var_values) / e2.evaluate(var_values),
-            Expr::Pow(base, exp) => base.evaluate(var_values).powi(*exp),
-            Expr::Sin(arg) => arg.evaluate(var_values).sin(),
-            Expr::Cos(arg) => arg.evaluate(var_values).cos(),
-        }
-    }
-
-    pub fn simplify(&self) -> Expr {
-        match self {
-            Expr::Const(c) => match c {
-                0.0 => Expr::Const(0.0),
-                1.0 => Expr::Const(1.0),
-                _ => self.clone(),
-            },
-            Expr::Add(e1, e2) => {
-                let se1 = e1.simplify();
-                let se2 = e2.simplify();
-                match (&se1, &se2) {
-                    (Expr::Const(c1), Expr::Const(c2)) => Expr::Const(c1 + c2),
-                    (Expr::Const(0.0), _) => se2,
-                    (_, Expr::Const(0.0)) => se1,
-                    _ => Expr::Add(Box::new(se1), Box::new(se2)),
-                }
-            }
-            Expr::Sub(e1, e2) => {
-                let se1 = e1.simplify();
-                let se2 = e2.simplify();
-                match (&se1, &se2) {
-                    (Expr::Const(c1), Expr::Const(c2)) => Expr::Const(c1 - c2),
-                    (_, Expr::Const(0.0)) => se1,
-                    _ => Expr::Sub(Box::new(se1), Box::new(se2)),
-                }
-            }
-            Expr::Mul(e1, e2) => {
-                let se1 = e1.simplify();
-                let se2 = e2.simplify();
-                match (&se1, &se2) {
-                    (Expr::Const(c1), Expr::Const(c2)) => Expr::Const(c1 * c2),
-                    (Expr::Const(0.0), _) | (_, Expr::Const(0.0)) => Expr::Const(0.0),
-                    (Expr::Const(1.0), _) => se2,
-                    (_, Expr::Const(1.0)) => se1,
-                    _ => Expr::Mul(Box::new(se1), Box::new(se2)),
-                }
-            }
-            Expr::Div(e1, e2) => {
-                let se1 = e1.simplify();
-                let se2 = e2.simplify();
-                match (&se1, &se2) {
-                    (Expr::Const(c1), Expr::Const(c2)) if *c2 != 0.0 => Expr::Const(c1 / c2),
-                    (Expr::Const(0.0), _) => Expr::Const(0.0),
-                    (_, Expr::Const(1.0)) => se1,
-                    _ => Expr::Div(Box::new(se1), Box::new(se2)),
-                }
-            }
-            Expr::Pow(base, exp) => {
-                let sbase = base.simplify();
-                match &sbase {
-                    Expr::Const(c) => Expr::Const(c.powi(*exp)),
-                    _ => Expr::Pow(Box::new(sbase), *exp),
-                }
-            }
-            Expr::Sin(arg) => {
-                let sarg = arg.simplify();
-                match &sarg {
-                    Expr::Const(c) => Expr::Const(c.sin()),
-                    _ => Expr::Sin(Box::new(sarg)),
-                }
-            }
-            Expr::Cos(arg) => {
-                let sarg = arg.simplify();
-                match &sarg {
-                    Expr::Const(c) => Expr::Const(c.cos()),
-                    _ => Expr::Cos(Box::new(sarg)),
-                }
-            }
-            _ => self.clone(),
-        }
-    }
-
-    pub fn diff(&self, var: &Box<Var>) -> Expr {
-        match self {
-            Expr::Const(_) => Expr::Const(0.0),
-            Expr::Var(var_) => {
-                if var == var_ {
-                    Expr::Const(1.0)
-                } else {
-                    Expr::Const(0.0)
-                }
-            }
-            Expr::Param(param) => Expr::Const(0.0),
-            Expr::Add(e1, e2) => Expr::Add(Box::new(e1.diff(var)), Box::new(e2.diff(var))),
-            Expr::Sub(e1, e2) => Expr::Sub(Box::new(e1.diff(var)), Box::new(e2.diff(var))),
-            Expr::Mul(e1, e2) => Expr::Add(
-                Box::new(Expr::Mul(Box::new(e1.diff(var)), e2.clone())),
-                Box::new(Expr::Mul(e1.clone(), Box::new(e2.diff(var)))),
-            ),
-            Expr::Div(e1, e2) => Expr::Div(
-                Box::new(Expr::Sub(
-                    Box::new(Expr::Mul(Box::new(e1.diff(var)), e2.clone())),
-                    Box::new(Expr::Mul(e1.clone(), Box::new(e2.diff(var)))),
-                )),
-                Box::new(Expr::Mul(e2.clone(), e2.clone())),
-            ),
-            Expr::Pow(base, exp) => {
-                if *exp == 0 {
-                    Expr::Const(0.0)
-                } else {
-                    let new_exp = *exp - 1;
-                    let coeff = *exp as f64;
-                    Expr::Mul(
-                        Box::new(Expr::Mul(
-                            Box::new(Expr::Const(coeff)),
-                            Box::new(Expr::Pow(base.clone(), new_exp)),
-                        )),
-                        Box::new(base.diff(var)),
-                    )
-                }
-            }
-            Expr::Sin(arg) => Expr::Mul(Box::new(Expr::Cos(arg.clone())), Box::new(arg.diff(var))),
-            Expr::Cos(arg) => Expr::Mul(
-                Box::new(Expr::Mul(
-                    Box::new(Expr::Const(-1.0)),
-                    Box::new(Expr::Sin(arg.clone())),
-                )),
-                Box::new(arg.diff(var)),
-            ),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstrType {
+    Equality,
+    LessThan,
+    GreaterThan,
+    Range,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VarId(I);
+
+#[derive(Debug, Clone)]
 pub struct Var {
     name: String,
-    value: E,
-    rc: E,
+    lb: E,
+    ub: E,
+    idx: VarId,
 }
 
 impl Var {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            value: E::default(),
-            rc: E::default(),
-        }
-    }
-
-    pub fn as_mut(&mut self) -> &mut Self {
-        self
-    }
-
-    pub fn get_name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn get_value(&self) -> E {
-        self.value
+    pub fn lb(&self) -> E {
+        self.lb
     }
 
-    pub fn get_rc(&self) -> E {
-        self.rc
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Param {
-    name: String,
-    value: E,
-}
-
-impl Param {
-    pub fn get_name(&self) -> &str {
-        &self.name
+    fn set_lb(&mut self, lb: E) {
+        self.lb = lb;
     }
 
-    pub fn as_mut(&mut self) -> &mut Self {
-        self
+    pub fn ub(&self) -> E {
+        self.ub
     }
 
-    pub fn get_value(&self) -> E {
-        self.value
+    fn set_ub(&mut self, ub: E) {
+        self.ub = ub;
     }
 
-    pub fn set_value(&mut self, value: E) {
-        self.value = value;
+    fn idx(&self) -> VarId {
+        self.idx
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Sense {
-    Equal,
-    LessEqual,
-    GreaterEqual,
-}
-
-impl From<&str> for Sense {
-    fn from(s: &str) -> Self {
-        match s {
-            "==" | "=" => Sense::Equal,
-            "<=" | "<" => Sense::LessEqual,
-            ">=" | ">" => Sense::GreaterEqual,
-            _ => panic!("Invalid sense string: {}", s),
-        }
+impl Hash for Var {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Constr {
-    lhs: Expr,
-    rhs: Expr,
-    sense: Sense, // "==" or "<=" or ">="
-    dual: E,
-}
-
-impl Constr {
-    pub fn new(lhs: Expr, rhs: Expr, sense: Sense) -> Self {
-        Self {
-            lhs,
-            rhs,
-            sense,
-            dual: E::default(),
-        }
-    }
-
-    pub fn as_mut(&mut self) -> &mut Self {
-        self
-    }
-
-    pub fn get_lhs(&self) -> &Expr {
-        &self.lhs
-    }
-
-    pub fn get_rhs(&self) -> &Expr {
-        &self.rhs
-    }
-
-    pub fn get_sense(&self) -> &Sense {
-        &self.sense
-    }
-
-    pub fn get_dual(&self) -> E {
-        self.dual
+impl PartialEq for Var {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Model {
+impl Eq for Var {}
+
+#[derive(Debug, Clone)]
+struct VarPool {
     vars: Vec<Var>,
-    constrs: Vec<Constr>,
-    obj: Expr,
 }
 
-impl Model {
-    pub fn get_vars(&self) -> &[Var] {
-        &self.vars
+impl VarPool {
+    fn new() -> Self {
+        Self { vars: Vec::new() }
     }
 
-    pub fn get_constrs(&self) -> &[Constr] {
-        &self.constrs
-    }
-
-    pub fn get_obj(&self) -> &Expr {
-        &self.obj
-    }
-
-    pub fn get_obj_mut(&mut self) -> &mut Expr {
-        &mut self.obj
-    }
-
-    pub fn add_variable(&mut self, var: Var) -> &Var {
-        let idx = self.vars.len();
+    fn add_var(&mut self, lb: E, ub: E) -> VarId {
+        let var = Var {
+            name: format!("var{}", self.vars.len()),
+            lb,
+            ub,
+            idx: VarId(self.vars.len()),
+        };
         self.vars.push(var);
-        &self.vars[idx]
+        VarId(self.vars.len() - 1)
     }
 
-    pub fn add_constraint(&mut self, constr: Constr) -> &Constr {
-        let idx = self.constrs.len();
+    fn get_var(&self, idx: VarId) -> Option<&Var> {
+        self.vars.get(idx.0 as usize)
+    }
+
+    fn get_var_mut(&mut self, idx: VarId) -> Option<&mut Var> {
+        self.vars.get_mut(idx.0 as usize)
+    }
+
+    fn get_var_by_name(&self, name: &str) -> Option<&Var> {
+        self.vars.iter().find(|var| var.name() == name)
+    }
+}
+
+impl Mul<E> for &Var {
+    type Output = LinExpr;
+
+    fn mul(self, rhs: E) -> Self::Output {
+        LinExpr::new(vec![(self.idx, rhs)], E::from(0.))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConstrId(I);
+
+#[derive(Debug, Clone)]
+pub struct LinConstr {
+    name: String,
+    expr: LinExpr,
+    constr_type: ConstrType,
+    lb: E,
+    ub: E,
+    idx: ConstrId,
+}
+
+impl LinConstr {
+    pub fn expr(&self) -> &LinExpr {
+        &self.expr
+    }
+
+    pub fn expr_mut(&mut self) -> &mut LinExpr {
+        &mut self.expr
+    }
+
+    pub fn constr_type(&self) -> ConstrType {
+        self.constr_type
+    }
+
+    pub fn set_constr_type(&mut self, constr_type: ConstrType) {
+        self.constr_type = constr_type;
+    }
+
+    pub fn lb(&self) -> E {
+        self.lb
+    }
+
+    pub fn set_lb(&mut self, lb: E) {
+        self.lb = lb;
+    }
+
+    pub fn ub(&self) -> E {
+        self.ub
+    }
+
+    pub fn set_ub(&mut self, ub: E) {
+        self.ub = ub;
+    }
+
+    fn idx(&self) -> ConstrId {
+        self.idx
+    }
+}
+
+struct LinConstrPool {
+    constrs: Vec<LinConstr>,
+}
+
+impl LinConstrPool {
+    fn new() -> Self {
+        Self {
+            constrs: Vec::new(),
+        }
+    }
+
+    fn add_constr(&mut self, expr: LinExpr, constr_type: ConstrType, lb: E, ub: E) -> ConstrId {
+        let constr = LinConstr {
+            name: format!("constr{}", self.constrs.len()),
+            expr,
+            constr_type,
+            lb,
+            ub,
+            idx: ConstrId(self.constrs.len() as I),
+        };
         self.constrs.push(constr);
-        &self.constrs[idx]
+        ConstrId(self.constrs.len() as I - 1)
     }
 
-    pub fn set_objective(&mut self, obj: Expr) {
-        self.obj = obj;
+    fn get_constr(&self, idx: ConstrId) -> Option<&LinConstr> {
+        self.constrs.get(idx.0 as usize)
+    }
+
+    fn get_constr_mut(&mut self, idx: ConstrId) -> Option<&mut LinConstr> {
+        self.constrs.get_mut(idx.0 as usize)
+    }
+
+    fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
+        self.constrs.iter().find(|constr| constr.name == name)
+    }
+
+    fn remove_constr(&mut self, idx: ConstrId) {
+        if let Some(pos) = self.constrs.iter().position(|constr| constr.idx == idx) {
+            self.constrs.remove(pos);
+            // Update indices of remaining constraints
+            self.constrs
+                .iter_mut()
+                .filter(|constr| constr.idx > idx)
+                .for_each(|constr| constr.idx = ConstrId(constr.idx.0 - 1));
+        }
+    }
+}
+
+pub struct LinearModel {
+    vars: VarPool,
+    sense: ObjSense,
+    lin_obj: LinExpr,
+    constrs: LinConstrPool,
+}
+
+impl LinearModel {
+    pub fn new() -> Self {
+        Self {
+            vars: VarPool::new(),
+            sense: ObjSense::Minimize,
+            lin_obj: LinExpr::default(),
+            constrs: LinConstrPool::new(),
+        }
+    }
+
+    pub fn vars(&self) -> Vec<&Var> {
+        self.vars.vars.iter().collect()
+    }
+
+    pub fn add_var(&mut self, lb: E, ub: E) -> VarId {
+        self.vars.add_var(lb, ub)
+    }
+
+    pub fn get_var(&self, idx: VarId) -> Option<&Var> {
+        self.vars.get_var(idx)
+    }
+
+    pub fn get_var_mut(&mut self, idx: VarId) -> Option<&mut Var> {
+        self.vars.get_var_mut(idx)
+    }
+
+    pub fn get_var_by_name(&self, name: &str) -> Option<&Var> {
+        self.vars.get_var_by_name(name)
+    }
+
+    pub fn constrs(&self) -> Vec<&LinConstr> {
+        self.constrs.constrs.iter().collect()
+    }
+
+    pub fn add_constr(&mut self, expr: LinExpr, constr_type: ConstrType, lb: E, ub: E) -> ConstrId {
+        self.constrs.add_constr(expr, constr_type, lb, ub)
+    }
+
+    pub fn get_constr(&self, idx: ConstrId) -> Option<&LinConstr> {
+        self.constrs.get_constr(idx)
+    }
+
+    pub fn get_constr_mut(&mut self, idx: ConstrId) -> Option<&mut LinConstr> {
+        self.constrs.get_constr_mut(idx)
+    }
+
+    pub fn remove_constr(&mut self, constr: ConstrId) {
+        self.constrs.remove_constr(constr);
+    }
+
+    pub fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
+        self.constrs.get_constr_by_name(name)
+    }
+
+    pub fn objective(&self) -> &LinExpr {
+        &self.lin_obj
+    }
+
+    pub fn objective_mut(&mut self) -> &mut LinExpr {
+        &mut self.lin_obj
+    }
+
+    pub fn set_objective(&mut self, obj: LinExpr) {
+        self.lin_obj = obj;
+    }
+
+    pub fn get_sense(&self) -> ObjSense {
+        self.sense
+    }
+
+    pub fn set_sense(&mut self, sense: ObjSense) {
+        self.sense = sense;
+    }
+}
+
+pub type NonlinearModel = NonlinearProgram;
+
+pub struct Solution {
+    status: Status,
+    objective: E,
+    values: Vec<E>,
+    duals: Vec<E>,
+    rcs: Vec<E>,
+}
+
+impl Solution {
+    pub fn status(&self) -> Status {
+        self.status
+    }
+
+    pub fn objective(&self) -> E {
+        self.objective
+    }
+
+    pub fn values(&self) -> &Vec<E> {
+        &self.values
+    }
+
+    pub fn get_value(&self, var: &Var) -> Option<E> {
+        self.values.get(var.idx.0 as usize).cloned()
+    }
+
+    pub fn duals(&self) -> &Vec<E> {
+        &self.duals
+    }
+
+    pub fn get_dual(&self, constr: &LinConstr) -> Option<E> {
+        self.duals.get(constr.name.parse::<usize>().ok()?).cloned()
+    }
+
+    pub fn reduced_costs(&self) -> &Vec<E> {
+        &self.rcs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lin_constr() {
+        let var1 = Var {
+            name: "x".to_string(),
+            lb: 0.,
+            ub: 10.,
+            idx: VarId(0),
+        };
+        let constr = LinConstr {
+            name: "constr0".to_string(),
+            expr: LinExpr::from(var1.idx) * 1.,
+            constr_type: ConstrType::LessThan,
+            lb: E::from(0.),
+            ub: E::from(5.),
+            idx: ConstrId(0),
+        };
+        assert_eq!(constr.expr().coeffs(), &vec![(VarId(0), 1.)]);
+        assert_eq!(constr.expr().constant(), 0.);
+        assert_eq!(constr.constr_type(), ConstrType::LessThan);
+        assert_eq!(constr.lb(), 0.);
+        assert_eq!(constr.ub(), 5.);
+    }
+
+    #[test]
+    fn test_linear_model() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(0., 10.);
+        let var2 = model.add_var(-5., 5.);
+        model.set_objective(LinExpr::from(var1) + LinExpr::from(var2));
+        let mut constr = model.add_constr(
+            LinExpr::from(var1) - LinExpr::from(var2),
+            ConstrType::GreaterThan,
+            0.,
+            E::from(10.),
+        );
+        assert_eq!(model.vars().len(), 2);
+        assert_eq!(model.constrs().len(), 1);
+        assert_eq!(
+            {
+                let mut coeffs = model.objective().coeffs().clone();
+                coeffs.sort_by_key(|(var_id, _)| var_id.0);
+                coeffs
+            },
+            vec![(VarId(0), 1.), (VarId(1), 1.)]
+        );
     }
 }

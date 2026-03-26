@@ -1,21 +1,33 @@
 #![allow(unused)]
 use faer::{Col, ColMut, ColRef};
 
-use crate::{E, linalg};
+use crate::{E, OptimizationProgram, linalg};
 
 /// Marker trait for algorithm-specific workspace data held in a [`View`].
-pub trait Workspace: Clone {}
+pub trait Workspace: Clone {
+    fn new<'a, P: OptimizationProgram>(program: &'a P, state: &'a mut SolverState) -> Self;
+}
 
 /// Bundles a mutable reference to the solver state with algorithm-specific workspace data.
 #[derive(Debug)]
-pub struct View<'a, W: Workspace> {
+pub struct View<'a, P: OptimizationProgram, W: Workspace> {
+    program: &'a P,
     state: &'a mut SolverState,
     work: W,
 }
 
-impl<'a, W: Workspace> View<'a, W> {
-    pub fn new(state: &'a mut SolverState, work: W) -> Self {
-        Self { state, work }
+impl<'a, P: OptimizationProgram, W: Workspace> View<'a, P, W> {
+    pub fn new(program: &'a P, state: &'a mut SolverState) -> Self {
+        let work = W::new(program, state);
+        Self {
+            program,
+            state,
+            work,
+        }
+    }
+
+    pub fn get_program(&self) -> &P {
+        &self.program
     }
 
     pub fn state(&self) -> &SolverState {
@@ -70,6 +82,7 @@ pub enum Status {
 pub struct SolverState {
     vars: Variables,
     residuals: Residuals,
+    delta: Delta,
 
     nit: usize,
     status: Status,
@@ -82,7 +95,7 @@ impl SolverState {
         Self {
             vars: Variables::new(n, m),
             residuals: Residuals::new(n, m),
-
+            delta: Delta::new(n, m),
             nit: 0,
             status: Status::InProgress,
             alpha_primal: E::from(1.),
@@ -94,8 +107,24 @@ impl SolverState {
         &self.vars
     }
 
+    pub fn variables_mut(&mut self) -> &mut Variables {
+        &mut self.vars
+    }
+
     pub fn residuals(&self) -> &Residuals {
         &self.residuals
+    }
+
+    pub fn residuals_mut(&mut self) -> &mut Residuals {
+        &mut self.residuals
+    }
+
+    pub fn delta(&self) -> &Delta {
+        &self.delta
+    }
+
+    pub fn delta_mut(&mut self) -> &mut Delta {
+        &mut self.delta
     }
 
     pub fn nit(&self) -> usize {
@@ -130,7 +159,7 @@ impl SolverState {
         (self.alpha_primal, self.alpha_dual)
     }
 
-    pub fn set_alpha(mut self, alpha_primal: E, alpha_dual: E) {
+    pub fn set_alpha(&mut self, alpha_primal: E, alpha_dual: E) {
         self.alpha_primal = alpha_primal;
         self.alpha_dual = alpha_dual;
     }
@@ -142,7 +171,7 @@ impl SolverState {
 /// - `y`: equality multipliers (m)
 /// - `z_l`, `z_u`: bound multipliers (n each)
 #[derive(Debug, Clone)]
-struct Variables {
+pub struct Variables {
     data: Vec<E>,
     n: usize,
     m: usize,
@@ -279,7 +308,7 @@ impl Residuals {
 
 /// Newton step directions `[dx | dy | dz_l | dz_u]`, matching the layout of `Variables`.
 #[derive(Debug, Clone)]
-struct Delta {
+pub struct Delta {
     data: Vec<E>,
     n: usize,
     m: usize,

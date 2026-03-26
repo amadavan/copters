@@ -12,7 +12,7 @@ use macros::build_options;
 use problemo::Problem;
 
 use crate::callback::Callback;
-use crate::state::{SolverState, Status};
+use crate::state::{SolverState, Status, View, Workspace};
 
 pub trait ElementType: ComplexField + Float + Div<Output = Self> + PrimInt {}
 impl<T> ElementType for T where T: ComplexField + Float + Div<Output = T> + PrimInt {}
@@ -32,6 +32,7 @@ pub mod nlp;
 // pub mod qp;
 pub mod state;
 // pub mod stochastic;
+pub mod model;
 pub mod terminators;
 pub mod utils;
 
@@ -64,7 +65,7 @@ impl Clone for Box<dyn OptionTrait> {
 }
 
 pub trait OptimizationProgram {
-    fn update_residual(&self, state: &mut SolverState);
+    // fn update_residual(&self, state: &mut SolverState);
 }
 
 /// Trait for iterative optimization solvers.
@@ -72,27 +73,35 @@ pub trait OptimizationProgram {
 /// Provides a standard interface for algorithms that proceed by repeated iteration,
 /// such as simplex, interior-point, or gradient-based methods.
 pub trait IterativeSolver {
-    fn get_program(&self) -> &dyn OptimizationProgram;
+    type Program: OptimizationProgram;
+    type Workspace: Workspace;
 
     fn get_max_iterations(&self) -> usize;
 
-    fn initialize(&mut self, _state: &mut SolverState) {
+    fn initialize(&mut self, _state: &mut View<Self::Program, Self::Workspace>) {
         // Default implementation does nothing, but can be overridden by specific solvers
     }
 
-    fn iterate(&mut self, state: &mut SolverState) -> Result<Status, Problem>;
-
-    fn solve(
+    fn iterate(
         &mut self,
+        state: &mut View<Self::Program, Self::Workspace>,
+    ) -> Result<Status, Problem>;
+
+    fn optimize(
+        &mut self,
+        program: &Self::Program,
         state: &mut SolverState,
         hooks: &mut SolverHooks,
     ) -> Result<Status, Problem> {
-        hooks.callback.init(state);
+        // Initialize the solver state and workspace
+        let mut view = View::new(program, state);
 
-        self.initialize(state);
+        hooks.callback.init(view.state());
 
-        state.set_nit(0);
-        state.set_status(Status::InProgress);
+        self.initialize(&mut view);
+
+        view.state_mut().set_nit(0);
+        view.state_mut().set_status(Status::InProgress);
 
         let max_iter = {
             let max_iter = self.get_max_iterations();
@@ -104,8 +113,10 @@ pub trait IterativeSolver {
         };
 
         for iter in 0..max_iter {
-            state.inc_nit();
-            self.iterate(state)?;
+            view.state_mut().inc_nit();
+            self.iterate(&mut view)?;
+
+            let state = view.state();
 
             let status = state.status();
             if status != Status::InProgress {
