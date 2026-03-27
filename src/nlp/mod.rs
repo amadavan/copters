@@ -1,7 +1,6 @@
 // pub mod ipm;
 
 use faer::{Col, ColRef, sparse::SparseColMat};
-use macros::use_option;
 
 use crate::{E, I, IterativeSolver, OptimizationProgram, SolverOptions};
 

@@ -3,10 +3,7 @@ use std::{
     ops::{Add, AddAssign, Mul, Sub, SubAssign},
 };
 
-use crate::{
-    E,
-    model::{Var, VarId},
-};
+use crate::{E, model::VarId};
 
 #[derive(Debug, Clone)]
 pub struct LinExpr {

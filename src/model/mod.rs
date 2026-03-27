@@ -45,6 +45,7 @@ impl Var<'_> {
         *self.ub
     }
 
+    #[allow(unused)]
     fn idx(&self) -> VarId {
         self.idx
     }
@@ -70,6 +71,7 @@ impl VarMut<'_> {
         self.ub
     }
 
+    #[allow(unused)]
     fn idx(&self) -> VarId {
         self.idx
     }
@@ -195,6 +197,7 @@ impl LinConstr<'_> {
         *self.ub
     }
 
+    #[allow(unused)]
     fn idx(&self) -> ConstrId {
         self.idx
     }
@@ -246,6 +249,7 @@ impl LinConstrMut<'_> {
         *self.ub = ub;
     }
 
+    #[allow(unused)]
     fn idx(&self) -> ConstrId {
         self.idx
     }
@@ -638,7 +642,7 @@ mod tests {
     fn test_get_constr_by_name() {
         let mut model = LinearModel::new();
         let var1 = model.add_var(None, 0., 10.);
-        let constr = model.add_constr(
+        let _constr = model.add_constr(
             Some("c1".to_string()),
             LinExpr::from(var1) * 1.,
             ConstrType::LessThan,

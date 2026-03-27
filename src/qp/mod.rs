@@ -1,6 +1,6 @@
 use faer::{Col, sparse::SparseColMat};
 
-use crate::{E, I};
+use crate::{E, I, lp::LinearProgram};
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -68,5 +68,20 @@ impl QuadraticProgram {
 
     pub fn get_n_cons(&self) -> usize {
         self.n_cons
+    }
+}
+
+impl From<LinearProgram> for QuadraticProgram {
+    fn from(lp: LinearProgram) -> Self {
+        Self {
+            n_vars: lp.n_vars,
+            n_cons: lp.n_cons,
+            Q: SparseColMat::try_new_from_nonnegative_triplets(lp.n_vars, lp.n_vars, &[]).unwrap(),
+            c: lp.c,
+            A: lp.A,
+            b: lp.b,
+            l: lp.l,
+            u: lp.u,
+        }
     }
 }

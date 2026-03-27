@@ -274,8 +274,6 @@ impl Builder {
 
 #[cfg(test)]
 mod tests {
-    use faer::col::generic::Col;
-
     use super::*;
 
     #[cfg(unix)]
