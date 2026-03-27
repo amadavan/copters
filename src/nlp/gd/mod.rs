@@ -7,17 +7,17 @@ use problemo::Problem;
 use crate::{
     E, I, IterativeSolver, OptimizationProgram, SolverOptions,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
-    state::{self, Delta, SolverState, Status, View},
+    state::{self, SolverState, Status, View},
 };
 
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
 pub struct Workspace {
-    f: E,
+    _f: E,
     g: Col<E>,
     df: Col<E>,
     dg: SparseColMat<I, E>,
-    h: Option<SparseColMat<I, E>>,
+    _h: Option<SparseColMat<I, E>>,
     L: E,
     dL: Col<E>,
 }
@@ -25,11 +25,11 @@ pub struct Workspace {
 impl Workspace {
     fn new(n: usize, m: usize) -> Self {
         Self {
-            f: E::from(0.),
+            _f: E::from(0.),
             g: Col::zeros(m),
             df: Col::zeros(n),
             dg: SparseColMat::try_new_from_nonnegative_triplets(n, m, &[]).unwrap(),
-            h: None,
+            _h: None,
             L: 0.,
             dL: Col::zeros(n),
         }
@@ -44,6 +44,7 @@ impl Workspace {
         self.dL = (self.df.as_ref() + self.dg.as_ref().transpose() * y).to_owned();
     }
 
+    #[allow(non_snake_case)]
     fn compute_L(
         &self,
         nlp: &NonlinearProgram,
@@ -53,7 +54,6 @@ impl Workspace {
     ) -> E {
         let step_x = &state.vars.x() + alpha_primal * &state.delta.dx();
         let step_y = &state.vars.y() + alpha_dual * &state.delta.dy();
-        let step_y = &state.vars.y();
         nlp.f(&step_x.as_ref()) + nlp.g(&step_x.as_ref()).transpose() * &step_y.as_ref()
     }
 }
@@ -259,13 +259,42 @@ mod tests {
     }
 
     #[rstest]
+    fn gd_barzilai_borwein(
+        #[values(
+            BarzilaiBorweinVariant::ShortStep,
+            BarzilaiBorweinVariant::LongStep,
+            BarzilaiBorweinVariant::Hybrid
+        )]
+        variant: BarzilaiBorweinVariant,
+    ) {
+        let (simple_nlp, mut state) = build_simple_nlp();
+
+        let mut options = SolverOptions::new();
+        options
+            .set_option("barzilai_borwein_variant", variant)
+            .unwrap();
+        options.set_option("max_iterations", 1000 as I).unwrap();
+        let mut properties = SolverHooks {
+            callback: Box::new(ConvergenceOutput::new()),
+            terminator: Box::new(ConvergenceTerminator::new(&options)),
+        };
+
+        let mut gd_solver = GradientDescent::<BarzilaiBorwein>::new(&simple_nlp, &options);
+        let result = gd_solver
+            .optimize(&simple_nlp, &mut state, &mut properties)
+            .unwrap();
+        assert_eq!(result, Status::Optimal);
+        assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
+        assert!((state.variables().x()[1] - 2.0).abs() < 1e-3);
+    }
+
+    #[rstest]
     fn gd_armijo() {
         let (simple_nlp, mut state) = build_simple_nlp();
 
         let mut options = SolverOptions::new();
-        let check = options.set_option("learning_rate", 10.0);
-        let check = options.set_option("max_iterations", 100 as I);
-        assert!(check.is_ok(), "Failed to set max_iterations option");
+        let _ = options.set_option("learning_rate", 10.0);
+        let _ = options.set_option("max_iterations", 100 as I);
         let mut properties = SolverHooks {
             callback: Box::new(ConvergenceOutput::new()),
             terminator: Box::new(ConvergenceTerminator::new(&options)),

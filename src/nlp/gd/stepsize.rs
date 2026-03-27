@@ -1,11 +1,13 @@
+use std::str::FromStr;
+
 use macros::{explicit_options, use_option};
 
-use faer::{Col, unzip, zip};
+use faer::{Col, ColRef};
 
 use crate::{
-    E, SolverOptions,
+    E, OptionTrait, SolverOptions,
     nlp::{NonlinearProgram, gd::Workspace},
-    state::{SolverState, View},
+    state::SolverState,
 };
 
 /// Strategy for computing the step size at each gradient descent iteration.
@@ -16,7 +18,12 @@ pub trait StepSize {
         Self: Sized;
 
     /// Computes the step size for the current iteration.
-    fn compute(&mut self, state: &SolverState, work: &Workspace) -> E;
+    fn compute<'a>(
+        &mut self,
+        nlp: &'a NonlinearProgram,
+        state: &SolverState,
+        work: &Workspace,
+    ) -> (E, E);
 }
 
 /// Constant step size: `α_k = learning_rate` for all `k`.
@@ -31,8 +38,13 @@ impl StepSize for ConstantStepSize {
         }
     }
 
-    fn compute(&mut self, _state: &SolverState, _work: &Workspace) -> E {
-        self.options.learning_rate
+    fn compute<'a>(
+        &mut self,
+        _nlp: &'a NonlinearProgram,
+        _state: &SolverState,
+        _work: &Workspace,
+    ) -> (E, E) {
+        (self.options.learning_rate, self.options.learning_rate)
     }
 }
 
@@ -48,67 +60,157 @@ impl StepSize for LinearDecayStepSize {
         }
     }
 
-    fn compute(&mut self, state: &SolverState, _work: &Workspace) -> E {
-        self.options.learning_rate / (1. + state.nit() as E)
+    fn compute<'a>(
+        &mut self,
+        _nlp: &'a NonlinearProgram,
+        state: &SolverState,
+        _work: &Workspace,
+    ) -> (E, E) {
+        let step = self.options.learning_rate / (1. + state.nit() as E);
+        (step, step)
     }
 }
 
-/// Quadratic decay step size: `α_k = learning_rate / (1 + k²)`.
-#[explicit_options(name = SolverOptions)]
-#[use_option(name = "learning_rate", type_ = E, description = "Initial learning rate for quadratic decay step size.")]
-pub struct QuadraticDecayStepSize {}
+#[derive(Debug, Clone, Copy)]
+pub enum BarzilaiBorweinVariant {
+    ShortStep,
+    LongStep,
+    Hybrid,
+}
 
-impl StepSize for QuadraticDecayStepSize {
-    fn new(options: &SolverOptions) -> Self {
-        Self {
-            options: options.into(),
+impl OptionTrait for BarzilaiBorweinVariant {}
+
+impl FromStr for BarzilaiBorweinVariant {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "short" => Ok(Self::ShortStep),
+            "long" => Ok(Self::LongStep),
+            "hybrid" => Ok(Self::Hybrid),
+            _ => Err(format!("Invalid Barzilai-Borwein variant: {}", s)),
         }
     }
-
-    fn compute(&mut self, state: &SolverState, _work: &Workspace) -> E {
-        self.options.learning_rate / (1. + (state.nit() as E).powi(2))
-    }
 }
 
 #[explicit_options(name = SolverOptions)]
-pub struct BarzilaiBorweinStepSize {
+#[use_option(name = "alpha_min", type_ = E, default = "1e-10", description = "Minimum step size for Barzilai-Borwein step size.")]
+#[use_option(name = "alpha_max", type_ = E, default = "1e10", description = "Maximum step size for Barzilai-Borwein step size.")]
+#[use_option(name = "learning_rate", type_ = E, description = "Initial learning rate for Barzilai-Borwein step size.")]
+#[use_option(name = "barzilai_borwein_variant", type_ = crate::nlp::gd::stepsize::BarzilaiBorweinVariant, default = "short", description = "Variant of the Barzilai-Borwein step size to use (short, long, or hybrid).")]
+pub struct BarzilaiBorwein {
     prev_x: Option<Col<E>>,
     prev_grad: Option<Col<E>>,
+    prev_y: Option<Col<E>>,
+    prev_g: Option<Col<E>>,
+
+    fallback: ArmijoRule,
 }
 
-impl StepSize for BarzilaiBorweinStepSize {
+impl BarzilaiBorwein {
+    fn compute_step(&self, dx: ColRef<E>, df: ColRef<E>) -> E {
+        match self.options.barzilai_borwein_variant {
+            BarzilaiBorweinVariant::ShortStep => {
+                let numerator = &dx.transpose() * &df;
+                let denominator = &df.transpose() * &df;
+                if denominator.abs() > 1e-12 {
+                    numerator / denominator
+                } else {
+                    0.
+                }
+            }
+            BarzilaiBorweinVariant::LongStep => {
+                let numerator = &dx.transpose() * &dx;
+                let denominator = &dx.transpose() * &df;
+                if denominator.abs() > 1e-12 {
+                    numerator / denominator
+                } else {
+                    0.
+                }
+            }
+            BarzilaiBorweinVariant::Hybrid => {
+                // Hybrid step size: choose the short or long step based on the curvature condition.
+                let curvature_condition =
+                    (&dx.transpose() * &df).abs() / (&dx.transpose() * &dx).abs();
+                if curvature_condition < 0.5 {
+                    // Short step
+                    let numerator = &dx.transpose() * &df;
+                    let denominator = &df.transpose() * &df;
+                    if denominator.abs() > 1e-12 {
+                        numerator / denominator
+                    } else {
+                        0.
+                    }
+                } else {
+                    // Long step
+                    let numerator = &dx.transpose() * &dx;
+                    let denominator = &dx.transpose() * &df;
+                    if denominator.abs() > 1e-12 {
+                        numerator / denominator
+                    } else {
+                        0.
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl StepSize for BarzilaiBorwein {
     fn new(options: &SolverOptions) -> Self {
         Self {
             prev_x: None,
             prev_grad: None,
+            prev_y: None,
+            prev_g: None,
+            fallback: ArmijoRule::new(options),
 
             options: options.into(),
         }
     }
 
     #[allow(non_snake_case)]
-    fn compute(&mut self, state: &SolverState, work: &Workspace) -> E {
+    fn compute<'a>(
+        &mut self,
+        _nlp: &'a NonlinearProgram,
+        state: &SolverState,
+        work: &Workspace,
+    ) -> (E, E) {
         let vars: &crate::state::Variables = state.variables();
-        let step = if let (Some(prev_x), Some(prev_grad)) = (&self.prev_x, &self.prev_grad) {
-            let dx: Col<E> = zip!(&vars.x(), prev_x).map(|unzip!(x_i, x_prev_i)| x_i - x_prev_i);
-            let ddL: Col<E> =
-                zip!(work.dL.as_ref(), prev_grad).map(|unzip!(g_i, g_prev_i)| g_i - g_prev_i);
-            let numerator = zip!(&dx, &ddL)
-                .map(|unzip!(dx_i, ddL_i)| dx_i * ddL_i)
-                .sum();
-            let denominator = zip!(&ddL, &ddL)
-                .map(|unzip!(ddL_i, ddL_i2)| ddL_i * ddL_i2)
-                .sum();
-            if denominator.abs() > 1e-12 {
-                numerator / denominator
-            } else {
-                1.
-            }
+        let alpha_primal = if let (Some(prev_x), Some(prev_grad)) = (&self.prev_x, &self.prev_grad)
+        {
+            let dx = vars.x() - prev_x;
+            let ddL = work.dL.as_ref() - prev_grad;
+
+            self.compute_step(dx.as_ref(), ddL.as_ref())
         } else {
-            1.
+            0.
         };
+
+        let alpha_dual = if let (Some(prev_y), Some(prev_g)) = (&self.prev_y, &self.prev_g) {
+            let dy = vars.y() - prev_y;
+            let ddg = work.g.as_ref() - prev_g;
+
+            self.compute_step(dy.as_ref(), ddg.as_ref())
+        } else {
+            0.
+        };
+
         self.prev_x = Some(vars.x().to_owned());
         self.prev_grad = Some(work.dL.clone());
+        self.prev_y = Some(vars.y().to_owned());
+        self.prev_g = Some(work.g.clone());
+
+        if alpha_primal <= 0. || alpha_primal.is_nan() {
+            return self.fallback.compute(_nlp, state, work);
+        }
+        if alpha_dual <= 0. || alpha_dual.is_nan() {
+            return self.fallback.compute(_nlp, state, work);
+        }
+
+        (alpha_primal, alpha_primal)
+    }
+}
 
 #[explicit_options(name = SolverOptions)]
 #[use_option(name = "learning_rate", type_ = E, description = "Initial learning rate for Armijo line search step size.")]
@@ -124,7 +226,6 @@ impl ArmijoRule {
         nlp: &NonlinearProgram,
         state: &SolverState,
         work: &Workspace,
-        m: E,
         t: E,
         alpha: E,
     ) -> E {
@@ -148,7 +249,6 @@ impl ArmijoRule {
         nlp: &NonlinearProgram,
         state: &SolverState,
         work: &Workspace,
-        m: E,
         t: E,
         alpha: E,
     ) -> E {
@@ -171,7 +271,6 @@ impl StepSize for ArmijoRule {
         let options: ArmijoRuleInternalOptions = options.into();
         Self {
             alpha_prev: options.learning_rate,
-            alpha_dual_prev: options.learning_rate,
             options,
         }
     }
@@ -190,9 +289,9 @@ impl StepSize for ArmijoRule {
 
         let alpha = {
             if work.L - work.compute_L(nlp, state, alpha, alpha) >= alpha * t {
-                self.compute_feasible(nlp, state, work, m, t, alpha)
+                self.compute_feasible(nlp, state, work, t, alpha)
             } else {
-                self.compute_infeasible(nlp, state, work, m, t, alpha)
+                self.compute_infeasible(nlp, state, work, t, alpha)
             }
         };
 
