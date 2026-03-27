@@ -109,6 +109,95 @@ impl StepSize for BarzilaiBorweinStepSize {
         };
         self.prev_x = Some(vars.x().to_owned());
         self.prev_grad = Some(work.dL.clone());
-        step
+
+#[explicit_options(name = SolverOptions)]
+#[use_option(name = "learning_rate", type_ = E, description = "Initial learning rate for Armijo line search step size.")]
+#[use_option(name = "armijo_scale_factor", type_ = E, default = "0.5", description = "Backtracking line search parameter beta.")]
+#[use_option(name = "armijo_parameter", type_ = E, default = "0.5", description = "Armijo condition parameter sigma.")]
+pub struct ArmijoRule {
+    alpha_prev: E,
+}
+
+impl ArmijoRule {
+    fn compute_feasible(
+        &self,
+        nlp: &NonlinearProgram,
+        state: &SolverState,
+        work: &Workspace,
+        m: E,
+        t: E,
+        alpha: E,
+    ) -> E {
+        let mut alpha = alpha;
+
+        loop {
+            let alpha_candidate = alpha / self.options.armijo_scale_factor;
+            if alpha_candidate >= self.options.learning_rate
+                || work.L - work.compute_L(nlp, state, alpha, 0.) <= alpha_candidate * t
+            {
+                break;
+            }
+            alpha = alpha_candidate;
+        }
+
+        alpha
+    }
+
+    fn compute_infeasible(
+        &self,
+        nlp: &NonlinearProgram,
+        state: &SolverState,
+        work: &Workspace,
+        m: E,
+        t: E,
+        alpha: E,
+    ) -> E {
+        let mut alpha = alpha;
+
+        loop {
+            let alpha_candidate = alpha * self.options.armijo_scale_factor;
+            if work.L - work.compute_L(nlp, state, alpha, 0.) >= alpha_candidate * t {
+                break;
+            }
+            alpha = alpha_candidate;
+        }
+
+        alpha
+    }
+}
+
+impl StepSize for ArmijoRule {
+    fn new(options: &SolverOptions) -> Self {
+        let options: ArmijoRuleInternalOptions = options.into();
+        Self {
+            alpha_prev: options.learning_rate,
+            alpha_dual_prev: options.learning_rate,
+            options,
+        }
+    }
+
+    #[allow(non_snake_case)]
+    fn compute<'a>(
+        &mut self,
+        nlp: &'a NonlinearProgram,
+        state: &SolverState,
+        work: &Workspace,
+    ) -> (E, E) {
+        let m = &work.dL.transpose() * &state.delta.dx();
+        let t = -self.options.armijo_parameter * m;
+
+        let alpha = self.alpha_prev;
+
+        let alpha = {
+            if work.L - work.compute_L(nlp, state, alpha, alpha) >= alpha * t {
+                self.compute_feasible(nlp, state, work, m, t, alpha)
+            } else {
+                self.compute_infeasible(nlp, state, work, m, t, alpha)
+            }
+        };
+
+        self.alpha_prev = alpha;
+
+        (alpha, alpha)
     }
 }
