@@ -1,4 +1,5 @@
 use crate::utils::io::get_cache_dir;
+use flate2::read::GzDecoder;
 use problemo::{Problem, common::IntoCommonProblem};
 use sif_rs::SIF;
 use std::{io::Read, path::Path, sync::LazyLock};
@@ -27,7 +28,7 @@ fn download_http(url: &str) -> Result<Vec<u8>, Problem> {
 }
 
 fn unpack_optrove(tar_gz: &[u8], target_dir: String) -> Result<(), Problem> {
-    let tar = flate2::read::GzDecoder::new(&tar_gz[..]);
+    let tar = GzDecoder::new(&tar_gz[..]);
     let mut archive = tar::Archive::new(tar);
     std::fs::create_dir_all(&target_dir)?;
 

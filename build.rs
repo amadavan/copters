@@ -1,4 +1,4 @@
-#[cfg(feature = "data-loaders")]
+#[cfg(feature = "sif")]
 fn main() {
     cc::Build::new()
         .file("src/data_loaders/emps.c")
@@ -7,3 +7,6 @@ fn main() {
         .flag_if_supported("-w") // disables all warnings for gcc/clang
         .compile("emps");
 }
+
+#[cfg(not(feature = "sif"))]
+fn main() {}

@@ -145,6 +145,10 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    #[cfg(feature = "mtx")]
+    use crate::data_loaders::mtx;
+
+    #[cfg(feature = "mtx")]
     #[cfg(feature = "mkl")]
     #[rstest]
     fn test_mkl(#[values("Trefethen 20b")] mat_name: &str) {
@@ -167,6 +171,7 @@ mod tests {
         assert!(err.norm_l2() < 1e-10);
     }
 
+    #[cfg(feature = "mtx")]
     #[cfg(feature = "panua")]
     #[rstest]
     fn test_panua(#[values("Trefethen 20b")] mat_name: &str) {
