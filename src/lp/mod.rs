@@ -1,15 +1,8 @@
-use faer::{Col, sparse::SparseColMat};
-use problemo::Problem;
-use problemo::common::IntoCommonProblem;
+#![allow(dead_code)]
 
-use crate::OptimizationProgram;
-use crate::linalg::vector_ops::cwise_multiply_finite;
-// use crate::nlp::NonlinearProgram;
-// use crate::qp::QuadraticProgram;
-use crate::{
-    E, I, IterativeSolver, SolverOptions,
-    linalg::cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
-};
+use faer::{Col, sparse::SparseColMat};
+
+use crate::{E, I};
 
 /// A linear program in standard form:
 ///
@@ -21,33 +14,45 @@ use crate::{
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct LinearProgram {
+    pub n_vars: usize,
+    pub n_cons: usize,
     /// Objective function coefficients.
-    c: Col<E>,
+    pub c: Col<E>,
     /// Constraint matrix (sparse, column-major).
-    A: SparseColMat<I, E>,
+    pub A: SparseColMat<I, E>,
     /// Right-hand side of the equality constraints.
-    b: Col<E>,
+    pub b: Col<E>,
     /// Lower bounds on the variables.
-    l: Col<E>,
+    pub l: Col<E>,
     /// Upper bounds on the variables.
-    u: Col<E>,
+    pub u: Col<E>,
 }
 
 #[allow(non_snake_case)]
 impl LinearProgram {
     /// Creates a new linear program from the objective, constraints, and bounds.
     pub fn new(c: Col<E>, A: SparseColMat<I, E>, b: Col<E>, l: Col<E>, u: Col<E>) -> Self {
-        Self { c, A, b, l, u }
+        let n_vars = c.nrows();
+        let n_cons = b.nrows();
+        Self {
+            n_vars,
+            n_cons,
+            c,
+            A,
+            b,
+            l,
+            u,
+        }
     }
 
     /// Returns the number of variables (columns of `A`).
     pub fn get_n_vars(&self) -> usize {
-        self.c.nrows()
+        self.n_vars
     }
 
     /// Returns the number of constraints (rows of `A`).
     pub fn get_n_cons(&self) -> usize {
-        self.b.nrows()
+        self.n_cons
     }
 
     /// Returns `(n_vars, n_cons)`.
