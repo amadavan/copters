@@ -224,7 +224,7 @@ mod tests {
 
         let options = SolverOptions::new();
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new()),
+            callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(SlowProgressTerminator::new(&options)),
         };
 
@@ -245,7 +245,7 @@ mod tests {
         let _ = options.set_option("learning_rate", 10.0);
         let _ = options.set_option("max_iterations", 100);
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new()),
+            callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(SlowProgressTerminator::new(&options)),
         };
 
@@ -275,7 +275,7 @@ mod tests {
             .unwrap();
         options.set_option("max_iterations", 1000 as I).unwrap();
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new()),
+            callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
@@ -296,7 +296,7 @@ mod tests {
         let _ = options.set_option("learning_rate", 10.0);
         let _ = options.set_option("max_iterations", 100 as I);
         let mut properties = SolverHooks {
-            callback: Box::new(ConvergenceOutput::new()),
+            callback: Box::new(ConvergenceOutput::new(&options)),
             terminator: Box::new(ConvergenceTerminator::new(&options)),
         };
 
