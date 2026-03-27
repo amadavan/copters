@@ -67,6 +67,15 @@ impl From<VarId> for LinExpr {
     }
 }
 
+impl From<&VarId> for LinExpr {
+    fn from(var: &VarId) -> Self {
+        LinExpr {
+            coeffs: vec![(var.clone(), E::from(1.))],
+            constant: E::from(0.),
+        }
+    }
+}
+
 impl Add for LinExpr {
     type Output = LinExpr;
 
@@ -184,10 +193,20 @@ impl From<E> for QuadExpr {
     }
 }
 
-impl From<&Var> for QuadExpr {
-    fn from(var: &Var) -> Self {
+impl From<VarId> for QuadExpr {
+    fn from(var: VarId) -> Self {
         QuadExpr {
-            lin_coeffs: vec![(var.idx, E::from(1.))],
+            lin_coeffs: vec![(var, E::from(1.))],
+            quad_coeffs: Vec::new(),
+            constant: E::from(0.),
+        }
+    }
+}
+
+impl From<&VarId> for QuadExpr {
+    fn from(var: &VarId) -> Self {
+        QuadExpr {
+            lin_coeffs: vec![(var.clone(), E::from(1.))],
             quad_coeffs: Vec::new(),
             constant: E::from(0.),
         }
@@ -302,21 +321,14 @@ impl Mul<VarId> for LinExpr {
 mod tests {
     use super::*;
 
+    use crate::model::LinearModel;
+
     #[test]
     fn test_lin_expr_add() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let var2 = Var {
-            name: "y".to_string(),
-            lb: -5.,
-            ub: 5.,
-            idx: VarId(1),
-        };
-        let mut expr1 = LinExpr::from(var1.idx) + LinExpr::from(var2.idx);
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let var2 = model.add_var(None, -5., 5.);
+        let mut expr1 = LinExpr::from(var1) + LinExpr::from(var2);
         expr1.sort();
         assert_eq!(expr1.coeffs(), &vec![(VarId(0), 1.), (VarId(1), 1.)]);
         assert_eq!(expr1.constant(), 0.);
@@ -324,20 +336,11 @@ mod tests {
 
     #[test]
     fn test_lin_expr_add_assign() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let var2 = Var {
-            name: "y".to_string(),
-            lb: -5.,
-            ub: 5.,
-            idx: VarId(1),
-        };
-        let mut expr1 = LinExpr::from(var1.idx);
-        expr1 += LinExpr::from(var2.idx);
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let var2 = model.add_var(None, -5., 5.);
+        let mut expr1 = LinExpr::from(var1);
+        expr1 += LinExpr::from(var2);
         expr1.sort();
         assert_eq!(expr1.coeffs(), &vec![(VarId(0), 1.), (VarId(1), 1.)]);
         assert_eq!(expr1.constant(), 0.);
@@ -345,31 +348,18 @@ mod tests {
 
     #[test]
     fn test_lin_expr_mul() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let expr1 = LinExpr::from(var1.idx) * 2.;
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let expr1 = LinExpr::from(var1) * 2.;
         assert_eq!(expr1.coeffs(), &vec![(VarId(0), 2.)]);
         assert_eq!(expr1.constant(), 0.);
     }
 
     #[test]
     fn test_quad_expr_add() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let var2 = Var {
-            name: "y".to_string(),
-            lb: -5.,
-            ub: 5.,
-            idx: VarId(1),
-        };
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let var2 = model.add_var(None, -5., 5.);
         let mut expr1 = QuadExpr::from(&var1) + QuadExpr::from(&var2);
         expr1.sort();
         assert_eq!(expr1.lin_coeffs(), &vec![(VarId(0), 1.), (VarId(1), 1.)]);
@@ -379,18 +369,9 @@ mod tests {
 
     #[test]
     fn test_quad_expr_add_assign() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let var2 = Var {
-            name: "y".to_string(),
-            lb: -5.,
-            ub: 5.,
-            idx: VarId(1),
-        };
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let var2 = model.add_var(None, -5., 5.);
         let mut expr1 = QuadExpr::from(&var1);
         expr1 += QuadExpr::from(&var2);
         expr1.sort();
@@ -400,12 +381,8 @@ mod tests {
     }
     #[test]
     fn test_quad_expr_mul() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
         let expr1 = QuadExpr::from(&var1) * 2.;
         assert_eq!(expr1.lin_coeffs(), &vec![(VarId(0), 2.)]);
         assert_eq!(expr1.quad_coeffs(), &vec![]);
@@ -414,13 +391,9 @@ mod tests {
 
     #[test]
     fn test_lin_expr_mul_var() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let expr1: QuadExpr = var1.idx * var1.idx;
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let expr1: QuadExpr = var1 * var1;
         assert_eq!(expr1.lin_coeffs(), &vec![]);
         assert_eq!(expr1.quad_coeffs(), &vec![((VarId(0), VarId(0)), 1.)]);
         assert_eq!(expr1.constant(), 0.);

@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    ops::{Add, AddAssign, Mul, Sub, SubAssign},
-};
+use std::{collections::HashMap, hash::Hash, ops::Mul};
 
 use crate::{E, I, nlp::NonlinearProgram, state::Status};
 
@@ -29,24 +25,24 @@ pub enum ConstrType {
 pub struct VarId(I);
 
 #[derive(Debug, Clone)]
-pub struct Var {
-    name: String,
-    pub lb: E,
-    pub ub: E,
+pub struct Var<'a> {
+    pub name: &'a str,
+    pub lb: &'a E,
+    pub ub: &'a E,
     idx: VarId,
 }
 
-impl Var {
+impl Var<'_> {
     pub fn name(&self) -> &str {
-        &self.name
+        self.name
     }
 
-    fn set_lb(&mut self, lb: E) {
-        self.lb = lb;
+    pub fn lb(&self) -> E {
+        *self.lb
     }
 
-    fn set_ub(&mut self, ub: E) {
-        self.ub = ub;
+    pub fn ub(&self) -> E {
+        *self.ub
     }
 
     fn idx(&self) -> VarId {
@@ -54,51 +50,106 @@ impl Var {
     }
 }
 
-impl Hash for Var {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
+pub struct VarMut<'a> {
+    name: &'a str,
+    pub lb: &'a mut E,
+    pub ub: &'a mut E,
+    idx: VarId,
 }
 
-impl PartialEq for Var {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+impl VarMut<'_> {
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    pub fn lb(&mut self) -> &mut E {
+        self.lb
+    }
+
+    pub fn ub(&mut self) -> &mut E {
+        self.ub
+    }
+
+    fn idx(&self) -> VarId {
+        self.idx
     }
 }
-
-impl Eq for Var {}
 
 #[derive(Debug, Clone)]
-struct VarPool {
-    vars: Vec<Var>,
+struct VarArena {
+    lbs: Vec<E>,
+    ubs: Vec<E>,
+    name_lookup: HashMap<String, VarId>,
 }
 
-impl VarPool {
+impl VarArena {
     fn new() -> Self {
-        Self { vars: Vec::new() }
+        Self {
+            lbs: Vec::new(),
+            ubs: Vec::new(),
+            name_lookup: HashMap::new(),
+        }
     }
 
-    fn add_var(&mut self, lb: E, ub: E) -> VarId {
-        let var = Var {
-            name: format!("var{}", self.vars.len()),
-            lb,
-            ub,
-            idx: VarId(self.vars.len()),
-        };
-        self.vars.push(var);
-        VarId(self.vars.len() - 1)
+    fn add_var(&mut self, name: String, lb: E, ub: E) -> VarId {
+        let idx = self.lbs.len();
+        self.lbs.push(lb);
+        self.ubs.push(ub);
+        self.name_lookup.insert(name, VarId(idx as I));
+        VarId(idx as I)
     }
 
-    fn get_var(&self, idx: VarId) -> Option<&Var> {
-        self.vars.get(idx.0 as usize)
+    fn get_var<'a>(&'a self, idx: VarId) -> Option<Var<'a>> {
+        if idx.0 < self.lbs.len() as I {
+            Some(Var {
+                name: self
+                    .name_lookup
+                    .iter()
+                    .find(|(_, v)| **v == idx)
+                    .map(|(n, _)| n.as_str())
+                    .unwrap_or(""),
+                lb: &self.lbs[idx.0 as usize],
+                ub: &self.ubs[idx.0 as usize],
+                idx,
+            })
+        } else {
+            None
+        }
     }
 
-    fn get_var_mut(&mut self, idx: VarId) -> Option<&mut Var> {
-        self.vars.get_mut(idx.0 as usize)
+    fn get_var_mut<'a>(&'a mut self, idx: VarId) -> Option<VarMut<'a>> {
+        if idx.0 < self.lbs.len() as I {
+            let name = self
+                .name_lookup
+                .iter()
+                .find(|(_, v)| **v == idx)
+                .map(|(n, _)| n.as_str());
+            if let Some(name) = name {
+                Some(VarMut {
+                    name,
+                    lb: &mut self.lbs[idx.0 as usize],
+                    ub: &mut self.ubs[idx.0 as usize],
+                    idx,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
-    fn get_var_by_name(&self, name: &str) -> Option<&Var> {
-        self.vars.iter().find(|var| var.name() == name)
+    fn get_var_by_name<'a>(&'a self, name: &str) -> Option<Var<'a>> {
+        self.name_lookup
+            .get(name)
+            .and_then(|&idx| self.get_var(idx))
+    }
+
+    fn with_var_mut<F, R>(&mut self, var_id: VarId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut VarMut) -> R,
+    {
+        self.get_var_mut(var_id).as_mut().map(|var_mut| f(var_mut))
     }
 }
 
@@ -114,46 +165,34 @@ impl Mul<E> for VarId {
 pub struct ConstrId(I);
 
 #[derive(Debug, Clone)]
-pub struct LinConstr {
-    name: String,
-    pub expr: LinExpr,
-    pub constr_type: ConstrType,
-    pub lb: E,
-    pub ub: E,
+pub struct LinConstr<'a> {
+    name: &'a String,
+    pub expr: &'a LinExpr,
+    pub constr_type: &'a ConstrType,
+    pub lb: &'a E,
+    pub ub: &'a E,
     idx: ConstrId,
 }
 
-impl LinConstr {
-    pub fn expr(&self) -> &LinExpr {
-        &self.expr
+impl LinConstr<'_> {
+    pub fn name(&self) -> &str {
+        self.name
     }
 
-    pub fn expr_mut(&mut self) -> &mut LinExpr {
-        &mut self.expr
+    pub fn expr(&self) -> &LinExpr {
+        self.expr
     }
 
     pub fn constr_type(&self) -> ConstrType {
-        self.constr_type
-    }
-
-    pub fn set_constr_type(&mut self, constr_type: ConstrType) {
-        self.constr_type = constr_type;
+        *self.constr_type
     }
 
     pub fn lb(&self) -> E {
-        self.lb
-    }
-
-    pub fn set_lb(&mut self, lb: E) {
-        self.lb = lb;
+        *self.lb
     }
 
     pub fn ub(&self) -> E {
-        self.ub
-    }
-
-    pub fn set_ub(&mut self, ub: E) {
-        self.ub = ub;
+        *self.ub
     }
 
     fn idx(&self) -> ConstrId {
@@ -161,58 +200,172 @@ impl LinConstr {
     }
 }
 
-struct LinConstrPool {
-    constrs: Vec<LinConstr>,
+pub struct LinConstrMut<'a> {
+    name: &'a String,
+    pub expr: &'a mut LinExpr,
+    pub constr_type: &'a mut ConstrType,
+    pub lb: &'a mut E,
+    pub ub: &'a mut E,
+    idx: ConstrId,
 }
 
-impl LinConstrPool {
+impl LinConstrMut<'_> {
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    pub fn expr(&self) -> &LinExpr {
+        self.expr
+    }
+
+    pub fn expr_mut(&mut self) -> &mut LinExpr {
+        self.expr
+    }
+
+    pub fn constr_type(&self) -> ConstrType {
+        *self.constr_type
+    }
+
+    pub fn set_constr_type(&mut self, constr_type: ConstrType) {
+        *self.constr_type = constr_type;
+    }
+
+    pub fn lb(&self) -> E {
+        *self.lb
+    }
+
+    pub fn set_lb(&mut self, lb: E) {
+        *self.lb = lb;
+    }
+
+    pub fn ub(&self) -> E {
+        *self.ub
+    }
+
+    pub fn set_ub(&mut self, ub: E) {
+        *self.ub = ub;
+    }
+
+    fn idx(&self) -> ConstrId {
+        self.idx
+    }
+}
+
+struct LinConstrArena {
+    exprs: Vec<LinExpr>,
+    constr_types: Vec<ConstrType>,
+    lbs: Vec<E>,
+    ubs: Vec<E>,
+    name_lookup: HashMap<String, ConstrId>,
+}
+
+impl LinConstrArena {
     fn new() -> Self {
         Self {
-            constrs: Vec::new(),
+            exprs: Vec::new(),
+            constr_types: Vec::new(),
+            lbs: Vec::new(),
+            ubs: Vec::new(),
+            name_lookup: HashMap::new(),
         }
     }
 
-    fn add_constr(&mut self, expr: LinExpr, constr_type: ConstrType, lb: E, ub: E) -> ConstrId {
-        let constr = LinConstr {
-            name: format!("constr{}", self.constrs.len()),
-            expr,
-            constr_type,
-            lb,
-            ub,
-            idx: ConstrId(self.constrs.len() as I),
-        };
-        self.constrs.push(constr);
-        ConstrId(self.constrs.len() as I - 1)
+    fn add_constr(
+        &mut self,
+        name: String,
+        expr: LinExpr,
+        constr_type: ConstrType,
+        lb: E,
+        ub: E,
+    ) -> ConstrId {
+        let idx = self.exprs.len();
+        self.name_lookup.insert(name.clone(), ConstrId(idx as I));
+        self.exprs.push(expr);
+        self.constr_types.push(constr_type);
+        self.lbs.push(lb);
+        self.ubs.push(ub);
+        ConstrId(idx as I)
     }
 
-    fn get_constr(&self, idx: ConstrId) -> Option<&LinConstr> {
-        self.constrs.get(idx.0 as usize)
+    fn get_constr<'a>(&'a self, idx: ConstrId) -> Option<LinConstr<'a>> {
+        if idx.0 < self.exprs.len() as I {
+            let name = self
+                .name_lookup
+                .iter()
+                .find(|(_, v)| **v == idx)
+                .map(|(n, _)| n);
+            if let Some(name) = name {
+                Some(LinConstr {
+                    name: name,
+                    expr: &self.exprs[idx.0 as usize],
+                    constr_type: &self.constr_types[idx.0 as usize],
+                    lb: &self.lbs[idx.0 as usize],
+                    ub: &self.ubs[idx.0 as usize],
+                    idx,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
-    fn get_constr_mut(&mut self, idx: ConstrId) -> Option<&mut LinConstr> {
-        self.constrs.get_mut(idx.0 as usize)
+    fn get_constr_mut<'a>(&'a mut self, idx: ConstrId) -> Option<LinConstrMut<'a>> {
+        if idx.0 < self.exprs.len() as I {
+            let name = self
+                .name_lookup
+                .iter()
+                .find(|(_, v)| **v == idx)
+                .map(|(n, _)| n);
+            if let Some(name) = name {
+                Some(LinConstrMut {
+                    name: name,
+                    expr: &mut self.exprs[idx.0 as usize],
+                    constr_type: &mut self.constr_types[idx.0 as usize],
+                    lb: &mut self.lbs[idx.0 as usize],
+                    ub: &mut self.ubs[idx.0 as usize],
+                    idx,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
-    fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
-        self.constrs.iter().find(|constr| constr.name == name)
+    fn get_constr_by_name<'a>(&'a self, name: &str) -> Option<LinConstr<'a>> {
+        self.name_lookup
+            .get(name)
+            .and_then(|&idx| self.get_constr(idx))
+    }
+
+    fn with_constr_mut<F, R>(&mut self, constr_id: ConstrId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut LinConstrMut) -> R,
+    {
+        self.get_constr_mut(constr_id)
+            .as_mut()
+            .map(|constr_mut| f(constr_mut))
     }
 }
 
 pub struct LinearModel {
-    var_pool: VarPool,
-    constr_pool: LinConstrPool,
+    var_arena: VarArena,
+    constr_arena: LinConstrArena,
 
-    vars: Vec<VarId>,
-    sense: ObjSense,
-    lin_obj: LinExpr,
-    constrs: Vec<ConstrId>,
+    pub vars: Vec<VarId>,
+    pub sense: ObjSense,
+    pub lin_obj: LinExpr,
+    pub constrs: Vec<ConstrId>,
 }
 
 impl LinearModel {
     pub fn new() -> Self {
         Self {
-            var_pool: VarPool::new(),
-            constr_pool: LinConstrPool::new(),
+            var_arena: VarArena::new(),
+            constr_arena: LinConstrArena::new(),
 
             vars: Vec::new(),
             sense: ObjSense::Minimize,
@@ -221,67 +374,74 @@ impl LinearModel {
         }
     }
 
-    pub fn vars(&self) -> Vec<&Var> {
-        self.vars
-            .iter()
-            .filter_map(|&var_id| self.var_pool.get_var(var_id))
-            .collect()
+    pub fn vars(&self) -> Vec<VarId> {
+        self.vars.clone()
     }
 
-    pub fn add_var(&mut self, lb: E, ub: E) -> VarId {
-        let var_id = self.var_pool.add_var(lb, ub);
+    pub fn add_var(&mut self, name: Option<String>, lb: E, ub: E) -> VarId {
+        let var_id = self.var_arena.add_var(
+            name.unwrap_or_else(|| format!("var{}", self.vars.len())),
+            lb,
+            ub,
+        );
         self.vars.push(var_id);
         var_id
     }
 
-    pub fn get_var(&self, idx: VarId) -> Option<&Var> {
-        self.var_pool.get_var(idx)
+    pub fn get_var<'a>(&'a self, idx: VarId) -> Option<Var<'a>> {
+        self.var_arena.get_var(idx)
     }
 
-    pub fn get_var_mut(&mut self, idx: VarId) -> Option<&mut Var> {
-        self.var_pool.get_var_mut(idx)
+    pub fn get_var_mut<'a>(&'a mut self, idx: VarId) -> Option<VarMut<'a>> {
+        self.var_arena.get_var_mut(idx)
     }
 
-    pub fn get_var_by_name(&self, name: &str) -> Option<&Var> {
-        self.var_pool.get_var_by_name(name)
+    pub fn get_var_by_name<'a>(&'a self, name: &str) -> Option<Var<'a>> {
+        self.var_arena.get_var_by_name(name)
     }
 
     pub fn remove_var(&mut self, var: VarId) {
         if let Some(pos) = self.vars.iter().position(|&var_id| var_id == var) {
             let _ = self.vars.remove(pos);
-
-            self.constrs.iter().for_each(|&constr_id| {
-                if let Some(constr) = self.constr_pool.get_constr_mut(constr_id) {
-                    constr
-                        .expr_mut()
-                        .coeffs_mut()
-                        .retain(|&(v_id, _)| v_id != var);
-                }
-            });
-
-            self.lin_obj.coeffs_mut().retain(|&(v_id, _)| v_id != var);
         }
     }
 
-    pub fn constrs(&self) -> Vec<&LinConstr> {
-        self.constrs
-            .iter()
-            .filter_map(|&constr_id| self.constr_pool.get_constr(constr_id))
-            .collect()
+    pub fn with_var_mut<F, R>(&mut self, var_id: VarId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut VarMut) -> R,
+    {
+        self.var_arena.with_var_mut(var_id, f)
     }
 
-    pub fn add_constr(&mut self, expr: LinExpr, constr_type: ConstrType, lb: E, ub: E) -> ConstrId {
-        let constr_id = self.constr_pool.add_constr(expr, constr_type, lb, ub);
+    pub fn constrs(&self) -> Vec<ConstrId> {
+        self.constrs.clone()
+    }
+
+    pub fn add_constr(
+        &mut self,
+        name: Option<String>,
+        expr: LinExpr,
+        constr_type: ConstrType,
+        lb: E,
+        ub: E,
+    ) -> ConstrId {
+        let constr_id = self.constr_arena.add_constr(
+            name.unwrap_or_else(|| format!("constr{}", self.constrs.len())),
+            expr,
+            constr_type,
+            lb,
+            ub,
+        );
         self.constrs.push(constr_id);
         constr_id
     }
 
-    pub fn get_constr(&self, idx: ConstrId) -> Option<&LinConstr> {
-        self.constr_pool.get_constr(idx)
+    pub fn get_constr<'a>(&'a self, idx: ConstrId) -> Option<LinConstr<'a>> {
+        self.constr_arena.get_constr(idx)
     }
 
-    pub fn get_constr_mut(&mut self, idx: ConstrId) -> Option<&mut LinConstr> {
-        self.constr_pool.get_constr_mut(idx)
+    pub fn get_constr_mut<'a>(&'a mut self, idx: ConstrId) -> Option<LinConstrMut<'a>> {
+        self.constr_arena.get_constr_mut(idx)
     }
 
     pub fn remove_constr(&mut self, constr: ConstrId) {
@@ -294,8 +454,15 @@ impl LinearModel {
         }
     }
 
-    pub fn get_constr_by_name(&self, name: &str) -> Option<&LinConstr> {
-        self.constr_pool.get_constr_by_name(name)
+    pub fn get_constr_by_name<'a>(&'a self, name: &str) -> Option<LinConstr<'a>> {
+        self.constr_arena.get_constr_by_name(name)
+    }
+
+    pub fn with_constr_mut<F, R>(&mut self, constr_id: ConstrId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut LinConstrMut) -> R,
+    {
+        self.constr_arena.with_constr_mut(constr_id, f)
     }
 
     pub fn objective(&self) -> &LinExpr {
@@ -322,11 +489,11 @@ impl LinearModel {
 pub type NonlinearModel = NonlinearProgram;
 
 pub struct Solution {
-    status: Status,
-    objective: E,
-    values: Vec<E>,
-    duals: Vec<E>,
-    rcs: Vec<E>,
+    pub status: Status,
+    pub objective: E,
+    pub values: Vec<E>,
+    pub duals: Vec<E>,
+    pub rcs: Vec<E>,
 }
 
 impl Solution {
@@ -365,20 +532,12 @@ mod tests {
 
     #[test]
     fn test_lin_constr() {
-        let var1 = Var {
-            name: "x".to_string(),
-            lb: 0.,
-            ub: 10.,
-            idx: VarId(0),
-        };
-        let constr = LinConstr {
-            name: "constr0".to_string(),
-            expr: LinExpr::from(var1.idx) * 1.,
-            constr_type: ConstrType::LessThan,
-            lb: E::from(0.),
-            ub: E::from(5.),
-            idx: ConstrId(0),
-        };
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+
+        let constr = model.add_constr(None, LinExpr::from(var1) * 1., ConstrType::LessThan, 0., 5.);
+        let constr = model.get_constr(constr).unwrap();
+
         assert_eq!(constr.expr().coeffs(), &vec![(VarId(0), 1.)]);
         assert_eq!(constr.expr().constant(), 0.);
         assert_eq!(constr.constr_type(), ConstrType::LessThan);
@@ -387,12 +546,166 @@ mod tests {
     }
 
     #[test]
+    fn test_get_var() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(Some("x".to_string()), 0., 10.);
+        let var2 = model.add_var(Some("y".to_string()), -5., 5.);
+
+        let var_x = model.get_var(var1).unwrap();
+        assert_eq!(var_x.name(), "x");
+        assert_eq!(var_x.lb(), 0.);
+        assert_eq!(var_x.ub(), 10.);
+        assert_eq!(var_x.idx(), var1);
+
+        let var_y = model.get_var(var2).unwrap();
+        assert_eq!(var_y.name(), "y");
+        assert_eq!(var_y.lb(), -5.);
+        assert_eq!(var_y.ub(), 5.);
+        assert_eq!(var_y.idx(), var2);
+    }
+
+    #[test]
+    fn test_get_var_by_name() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(Some("x".to_string()), 0., 10.);
+        let var2 = model.add_var(Some("y".to_string()), -5., 5.);
+
+        let var_x = model.get_var_by_name("x").unwrap();
+        assert_eq!(var_x.name(), "x");
+        assert_eq!(var_x.lb(), 0.);
+        assert_eq!(var_x.ub(), 10.);
+        assert_eq!(var_x.idx(), var1);
+
+        let var_y = model.get_var_by_name("y").unwrap();
+        assert_eq!(var_y.name(), "y");
+        assert_eq!(var_y.lb(), -5.);
+        assert_eq!(var_y.ub(), 5.);
+        assert_eq!(var_y.idx(), var2);
+    }
+
+    #[test]
+    fn test_var_mut() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(Some("x".to_string()), 0., 10.);
+        let mut var_mut = model.get_var_mut(var1).unwrap();
+
+        assert_eq!(var_mut.name(), "x");
+        assert_eq!(*var_mut.lb(), 0.);
+        assert_eq!(*var_mut.ub(), 10.);
+        assert_eq!(var_mut.idx(), var1);
+
+        *var_mut.lb() = -5.;
+        *var_mut.ub() = 15.;
+
+        assert_eq!(*var_mut.lb(), -5.);
+        assert_eq!(*var_mut.ub(), 15.);
+    }
+
+    #[test]
+    fn test_with_var_mut() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(Some("x".to_string()), 0., 10.);
+
+        model.with_var_mut(var1, |var_mut| {
+            assert_eq!(var_mut.name(), "x");
+            assert_eq!(*var_mut.lb(), 0.);
+            assert_eq!(*var_mut.ub(), 10.);
+            assert_eq!(var_mut.idx(), var1);
+
+            *var_mut.lb() = -5.;
+            *var_mut.ub() = 15.;
+
+            assert_eq!(*var_mut.lb(), -5.);
+            assert_eq!(*var_mut.ub(), 15.);
+        });
+    }
+
+    #[test]
+    fn test_get_constr() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let constr = model.add_constr(None, LinExpr::from(var1) * 1., ConstrType::LessThan, 0., 5.);
+        let constr = model.get_constr(constr).unwrap();
+
+        assert_eq!(constr.expr().coeffs(), &vec![(VarId(0), 1.)]);
+        assert_eq!(constr.expr().constant(), 0.);
+        assert_eq!(constr.constr_type(), ConstrType::LessThan);
+        assert_eq!(constr.lb(), 0.);
+        assert_eq!(constr.ub(), 5.);
+    }
+
+    #[test]
+    fn test_get_constr_by_name() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let constr = model.add_constr(
+            Some("c1".to_string()),
+            LinExpr::from(var1) * 1.,
+            ConstrType::LessThan,
+            0.,
+            5.,
+        );
+        let constr = model.get_constr_by_name("c1").unwrap();
+
+        assert_eq!(constr.expr().coeffs(), &vec![(VarId(0), 1.)]);
+        assert_eq!(constr.expr().constant(), 0.);
+        assert_eq!(constr.constr_type(), ConstrType::LessThan);
+        assert_eq!(constr.lb(), 0.);
+        assert_eq!(constr.ub(), 5.);
+    }
+
+    #[test]
+    fn test_lin_constr_mut() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let constr = model.add_constr(None, LinExpr::from(var1) * 1., ConstrType::LessThan, 0., 5.);
+        let mut constr_mut = model.get_constr_mut(constr).unwrap();
+
+        assert_eq!(constr_mut.expr().coeffs(), &vec![(VarId(0), 1.)]);
+        assert_eq!(constr_mut.expr().constant(), 0.);
+        assert_eq!(constr_mut.constr_type(), ConstrType::LessThan);
+        assert_eq!(constr_mut.lb(), 0.);
+        assert_eq!(constr_mut.ub(), 5.);
+
+        constr_mut.set_constr_type(ConstrType::GreaterThan);
+        constr_mut.set_lb(-5.);
+        constr_mut.set_ub(10.);
+
+        assert_eq!(constr_mut.constr_type(), ConstrType::GreaterThan);
+        assert_eq!(constr_mut.lb(), -5.);
+        assert_eq!(constr_mut.ub(), 10.);
+    }
+
+    #[test]
+    fn test_with_constr_mut() {
+        let mut model = LinearModel::new();
+        let var1 = model.add_var(None, 0., 10.);
+        let constr = model.add_constr(None, LinExpr::from(var1) * 1., ConstrType::LessThan, 0., 5.);
+        model.with_constr_mut(constr, |constr_mut| {
+            assert_eq!(constr_mut.expr().coeffs(), &vec![(VarId(0), 1.)]);
+            assert_eq!(constr_mut.expr().constant(), 0.);
+            assert_eq!(constr_mut.constr_type(), ConstrType::LessThan);
+            assert_eq!(constr_mut.lb(), 0.);
+            assert_eq!(constr_mut.ub(), 5.);
+
+            constr_mut.set_constr_type(ConstrType::GreaterThan);
+            constr_mut.set_lb(-5.);
+            constr_mut.set_ub(10.);
+
+            assert_eq!(constr_mut.constr_type(), ConstrType::GreaterThan);
+            assert_eq!(constr_mut.lb(), -5.);
+            assert_eq!(constr_mut.ub(), 10.);
+        });
+    }
+
+    #[test]
     fn test_linear_model() {
         let mut model = LinearModel::new();
-        let var1 = model.add_var(0., 10.);
-        let var2 = model.add_var(-5., 5.);
+        let var1 = model.add_var(None, 0., 10.);
+        let var2 = model.add_var(None, -5., 5.);
         model.set_objective(LinExpr::from(var1) + LinExpr::from(var2));
-        let mut constr = model.add_constr(
+        let _constr = model.add_constr(
+            None,
             LinExpr::from(var1) - LinExpr::from(var2),
             ConstrType::GreaterThan,
             0.,
