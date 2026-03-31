@@ -23,6 +23,7 @@ pub type I = usize;
 pub mod callback;
 pub mod interface;
 // pub(crate) mod ipm;
+pub mod initializer;
 pub mod linalg;
 pub mod lp;
 pub mod nlp;
