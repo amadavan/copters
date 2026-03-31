@@ -4,16 +4,16 @@ use faer::{Col, ColMut, ColRef};
 use crate::{E, OptimizationProgram, linalg};
 
 /// Marker trait for algorithm-specific workspace data held in a [`View`].
-pub trait Workspace: Clone {
+pub trait Workspace: Sized {
     fn new<'a, P: OptimizationProgram>(program: &'a P, state: &'a mut SolverState) -> Self;
 }
 
 /// Bundles a mutable reference to the solver state with algorithm-specific workspace data.
 #[derive(Debug)]
-pub struct View<'a, P: OptimizationProgram, W: Workspace> {
-    pub(crate) program: &'a P,
-    pub(crate) state: &'a mut SolverState,
-    pub(crate) work: W,
+pub(crate) struct View<'a, P: OptimizationProgram, W: Workspace> {
+    pub program: &'a P,
+    pub state: &'a mut SolverState,
+    pub work: W,
 }
 
 impl<'a, P: OptimizationProgram, W: Workspace> View<'a, P, W> {
@@ -79,7 +79,7 @@ pub enum Status {
 
 /// Current iterate: primal/dual variables and KKT residuals.
 #[derive(Debug, Clone)]
-pub struct SolverState {
+pub(crate) struct SolverState {
     pub vars: Variables,
     pub residuals: Residuals,
     pub delta: Delta,
@@ -163,6 +163,10 @@ impl SolverState {
         self.alpha_primal = alpha_primal;
         self.alpha_dual = alpha_dual;
     }
+
+    pub fn update(&mut self, alpha_primal: E, alpha_dual: E, delta: &Delta) {
+        self.vars.update(alpha_primal, alpha_dual, delta);
+    }
 }
 
 /// Primal and dual variables stored contiguously as `[x | y | z_l | z_u]`.
@@ -171,10 +175,10 @@ impl SolverState {
 /// - `y`: equality multipliers (m)
 /// - `z_l`, `z_u`: bound multipliers (n each)
 #[derive(Debug, Clone)]
-pub struct Variables {
-    data: Vec<E>,
-    n: usize,
-    m: usize,
+pub(crate) struct Variables {
+    pub data: Vec<E>,
+    pub n: usize,
+    pub m: usize,
 }
 
 impl Variables {
@@ -246,10 +250,10 @@ impl Variables {
 
 /// KKT residuals stored contiguously as `[dual | primal | slack_l | slack_u]`.
 #[derive(Debug, Clone)]
-pub struct Residuals {
-    data: Vec<E>,
-    n: usize,
-    m: usize,
+pub(crate) struct Residuals {
+    pub data: Vec<E>,
+    pub n: usize,
+    pub m: usize,
 }
 
 impl Residuals {
@@ -308,10 +312,10 @@ impl Residuals {
 
 /// Newton step directions `[dx | dy | dz_l | dz_u]`, matching the layout of `Variables`.
 #[derive(Debug, Clone)]
-pub struct Delta {
-    data: Vec<E>,
-    n: usize,
-    m: usize,
+pub(crate) struct Delta {
+    pub data: Vec<E>,
+    pub n: usize,
+    pub m: usize,
 }
 
 impl Delta {

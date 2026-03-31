@@ -63,26 +63,44 @@ pub trait OptimizationProgram {
     // fn update_residual(&self, state: &mut SolverState);
 }
 
+pub trait Solver {
+    type Program: OptimizationProgram;
+
+    fn solve(
+        &mut self,
+        program: &Self::Program,
+        state: &mut SolverState,
+        hooks: &mut SolverHooks,
+    ) -> Result<Status, Problem>;
+}
+
+pub trait DirectSolver: Solver {
+    fn solve_impl(
+        &mut self,
+        program: &Self::Program,
+        state: &mut SolverState,
+    ) -> Result<Status, Problem>;
+}
+
 /// Trait for iterative optimization solvers.
 ///
 /// Provides a standard interface for algorithms that proceed by repeated iteration,
 /// such as simplex, interior-point, or gradient-based methods.
-pub trait IterativeSolver {
-    type Program: OptimizationProgram;
+pub trait IterativeSolver: Solver {
     type Workspace: Workspace;
 
     fn get_max_iterations(&self) -> usize;
 
-    fn initialize(&mut self, _state: &mut View<Self::Program, Self::Workspace>) {
+    fn initialize(&mut self, _view: &mut View<Self::Program, Self::Workspace>) {
         // Default implementation does nothing, but can be overridden by specific solvers
     }
 
     fn iterate(
         &mut self,
-        state: &mut View<Self::Program, Self::Workspace>,
+        view: &mut View<Self::Program, Self::Workspace>,
     ) -> Result<Status, Problem>;
 
-    fn optimize(
+    fn solve_impl(
         &mut self,
         program: &Self::Program,
         state: &mut SolverState,
