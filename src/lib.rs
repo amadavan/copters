@@ -21,7 +21,7 @@ pub type E = f64;
 pub type I = usize;
 
 pub mod callback;
-// pub mod interface;
+pub mod interface;
 // pub(crate) mod ipm;
 pub mod linalg;
 pub mod lp;
