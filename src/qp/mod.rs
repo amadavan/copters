@@ -1,6 +1,17 @@
 use faer::{Col, sparse::SparseColMat};
+use problemo::{Problem, common::IntoCommonProblem};
 
-use crate::{E, I, lp::LinearProgram};
+use crate::{
+    E, I, OptimizationProgram, Solver, SolverOptions,
+    linalg::{
+        cholesky::{SimplicialSparseCholesky, SupernodalSparseCholesky},
+        lu::SimplicialSparseLu,
+    },
+    lp::LinearProgram,
+    qp::pc::PredictorCorrector,
+};
+
+pub mod pc;
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -71,6 +82,8 @@ impl QuadraticProgram {
     }
 }
 
+impl OptimizationProgram for QuadraticProgram {}
+
 impl From<LinearProgram> for QuadraticProgram {
     fn from(lp: LinearProgram) -> Self {
         Self {
@@ -83,5 +96,118 @@ impl From<LinearProgram> for QuadraticProgram {
             l: lp.l,
             u: lp.u,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SolverType {
+    MpcSimplicialCholeskyDefault,
+    MpcSupernodalCholeskyDefault,
+    MpcSimplicialLuDefault,
+}
+
+pub struct Builder<'a> {
+    qp: Option<&'a QuadraticProgram>,
+    options: SolverOptions,
+    type_: Option<SolverType>,
+}
+
+impl<'a> Builder<'a> {
+    pub fn new() -> Self {
+        Self {
+            qp: None,
+            options: SolverOptions::new(),
+            type_: None,
+        }
+    }
+
+    pub fn with_qp(&mut self, qp: &'a QuadraticProgram) {
+        self.qp = Some(qp);
+    }
+
+    pub fn with_options(&mut self, options: &SolverOptions) {
+        self.options = options.clone();
+    }
+
+    pub fn with_solver(&mut self, type_: SolverType) {
+        self.type_ = Some(type_);
+    }
+
+    pub fn build(self) -> Result<Box<dyn Solver<Program = QuadraticProgram>>, Problem> {
+        let qp = self.qp.ok_or_else(|| "Quadratic program not set".gloss())?;
+        let type_ = self.type_.ok_or_else(|| "Solver type not set".gloss())?;
+        let options = &self.options;
+
+        match type_ {
+            SolverType::MpcSimplicialCholeskyDefault => {
+                Ok(Box::new(PredictorCorrector::<
+                    pc::augmented_system::KKTSystem<SimplicialSparseCholesky>,
+                    pc::line_search::PrimalDualFeasible,
+                    pc::mu_update::MehrotraMuUpdate,
+                >::new(qp, options)))
+            }
+            SolverType::MpcSupernodalCholeskyDefault => {
+                Ok(Box::new(PredictorCorrector::<
+                    pc::augmented_system::KKTSystem<SupernodalSparseCholesky>,
+                    pc::line_search::PrimalDualFeasible,
+                    pc::mu_update::MehrotraMuUpdate,
+                >::new(qp, options)))
+            }
+            SolverType::MpcSimplicialLuDefault => Ok(Box::new(PredictorCorrector::<
+                pc::augmented_system::KKTSystem<SimplicialSparseLu>,
+                pc::line_search::PrimalDualFeasible,
+                pc::mu_update::MehrotraMuUpdate,
+            >::new(qp, options))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use faer::{ColRef, sparse::Triplet};
+    use rstest::fixture;
+
+    use super::*;
+
+    enum Solvers {
+        MpcSimplicialCholeskyDefault,
+        MpcSupernodalCholeskyDefault,
+    }
+
+    #[fixture]
+    #[allow(non_snake_case)]
+    pub(crate) fn build_simple_qp() -> &'static QuadraticProgram {
+        static QP: OnceLock<QuadraticProgram> = OnceLock::new();
+        QP.get_or_init(|| {
+            let Q = SparseColMat::try_new_from_triplets(
+                3,
+                3,
+                &[
+                    Triplet::new(0, 0, 2.0),
+                    Triplet::new(1, 1, 2.0),
+                    Triplet::new(2, 2, 2.0),
+                ],
+            )
+            .unwrap();
+            let c = ColRef::<E>::from_slice(&[0.0; 3]).to_owned();
+            let A = SparseColMat::try_new_from_triplets(
+                2,
+                3,
+                &[
+                    Triplet::new(0, 0, 1.0),
+                    Triplet::new(0, 1, 1.0),
+                    Triplet::new(1, 1, 1.0),
+                    Triplet::new(1, 2, 1.0),
+                ],
+            )
+            .unwrap();
+            let b = ColRef::<E>::from_slice(&[1.0; 2]).to_owned();
+            let l = Col::<E>::zeros(3);
+            let u = ColRef::<E>::from_slice(&[f64::INFINITY; 3]).to_owned();
+
+            QuadraticProgram::new(Q, c, A, b, l, u)
+        })
     }
 }
