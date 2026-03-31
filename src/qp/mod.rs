@@ -121,19 +121,22 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn with_qp(&mut self, qp: &'a QuadraticProgram) {
+    pub fn with_qp(&mut self, qp: &'a QuadraticProgram) -> &mut Self {
         self.qp = Some(qp);
+        self
     }
 
-    pub fn with_options(&mut self, options: &SolverOptions) {
+    pub fn with_options(&mut self, options: &SolverOptions) -> &mut Self {
         self.options = options.clone();
+        self
     }
 
-    pub fn with_solver(&mut self, type_: SolverType) {
+    pub fn with_solver(&mut self, type_: SolverType) -> &mut Self {
         self.type_ = Some(type_);
+        self
     }
 
-    pub fn build(self) -> Result<Box<dyn Solver<Program = QuadraticProgram>>, Problem> {
+    pub fn build(&self) -> Result<Box<dyn Solver<Program = QuadraticProgram> + 'a>, Problem> {
         let qp = self.qp.ok_or_else(|| "Quadratic program not set".gloss())?;
         let type_ = self.type_.ok_or_else(|| "Solver type not set".gloss())?;
         let options = &self.options;

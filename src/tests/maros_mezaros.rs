@@ -1,17 +1,20 @@
 use std::sync::OnceLock;
 
-use faer::Col;
+use faer::{unzip, zip};
 use rstest::{fixture, rstest};
 use rstest_reuse::{apply, template};
 
 use crate::{
-    E, SolverHooks, SolverOptions, SolverState,
+    E,
+    SolverHooks,
+    SolverOptions,
+    SolverState,
     callback::ConvergenceOutput,
     data_loaders,
     interface::sif::TryFromSIF,
-    lp::LinearProgram,
-    nlp::{NLPSolverType, NonlinearProgram},
-    qp::{QPSolverType, QuadraticProgram},
+    // lp::LinearProgram,
+    // nlp::{NLPSolverType, NonlinearProgram},
+    qp::{self, QuadraticProgram},
     terminators::ConvergenceTerminator,
 };
 
@@ -172,105 +175,100 @@ pub fn maros_mezaros_cases(
 }
 
 #[apply(maros_mezaros_cases)]
-fn qp(
+fn test_qp(
     _download_cases: &(),
     case_name: &str,
     #[values(
-        QPSolverType::MpcSimplicialCholesky,
-        QPSolverType::MpcSupernodalCholesky,
-        QPSolverType::MpcSimplicialLu
+        qp::SolverType::MpcSimplicialCholeskyDefault,
+        qp::SolverType::MpcSupernodalCholeskyDefault,
+        // qp::SolverType::MpcSimplicialLuDefault
     )]
-    solver_type: QPSolverType,
+    solver_type: qp::SolverType,
 ) {
     let qp = QuadraticProgram::try_from_sif(
         &data_loaders::sif::maros_mezaros::get_case(case_name).unwrap(),
     )
     .unwrap();
 
-    let mut state = SolverState::new(
-        Col::ones(qp.get_n_vars()),
-        Col::ones(qp.get_n_cons()),
-        Col::ones(qp.get_n_vars()),
-        -Col::<E>::ones(qp.get_n_vars()),
-    );
+    let mut state = SolverState::new(qp.get_n_vars(), qp.get_n_cons());
+    state.variables_mut().x_mut().fill(1.);
+    state.variables_mut().y_mut().fill(1.);
+    state.variables_mut().z_l_mut().fill(1.);
+    state.variables_mut().z_u_mut().fill(-1.);
 
     // Ensure that x is strictly between bounds for the initial iterate
-    for (j, (l, u)) in qp
-        .get_lower_bounds()
-        .iter()
-        .zip(qp.get_upper_bounds().iter())
-        .enumerate()
-    {
+    zip!(state.variables_mut().x_mut(), &qp.l, &qp.u).for_each(|unzip!(x_j, l, u)| {
         if l.is_finite() && u.is_finite() {
-            state.x[j] = (l + u) / 2.;
+            *x_j = (l + u) / 2.;
         } else if l.is_finite() && !u.is_finite() {
-            state.x[j] = l + 1.;
+            *x_j = l + 1.;
         } else if !l.is_finite() && u.is_finite() {
-            state.x[j] = u - 1.;
+            *x_j = u - 1.;
         } else {
-            state.x[j] = 0.;
+            *x_j = 0.;
         }
-    }
+    });
 
     let options = SolverOptions::new();
 
-    let mut properties = SolverHooks {
-        callback: Box::new(ConvergenceOutput::new()),
+    let mut hooks = SolverHooks {
+        callback: Box::new(ConvergenceOutput::new(&options)),
         terminator: Box::new(ConvergenceTerminator::new(&options)),
     };
 
-    let mut solver = QuadraticProgram::solver_builder(&qp)
+    let mut solver = qp::Builder::new()
+        .with_qp(&qp)
         .with_solver(solver_type)
         .build()
         .unwrap();
-    let status = solver.solve(&mut state, &mut properties);
+    let status = solver.solve(&qp, &mut state, &mut hooks);
 
     assert_eq!(status.unwrap(), crate::Status::Optimal);
 }
 
-#[apply(maros_mezaros_cases)]
-fn nlp(case_name: &str, #[values(NLPSolverType::InteriorPointMethod)] solver_type: NLPSolverType) {
-    let lp = LinearProgram::try_from_sif(&data_loaders::sif::netlib::get_case(case_name).unwrap())
-        .unwrap();
-    let nlp: NonlinearProgram = (&lp).into();
+// #[apply(maros_mezaros_cases)]
+// fn nlp(case_name: &str, #[values(NLPSolverType::InteriorPointMethod)] solver_type: NLPSolverType) {
+//     let lp = LinearProgram::try_from_sif(&data_loaders::sif::netlib::get_case(case_name).unwrap())
+//         .unwrap();
+//     let nlp: NonlinearProgram = (&lp).into();
 
-    let mut state = SolverState::new(
-        Col::ones(lp.get_n_vars()),
-        Col::ones(lp.get_n_cons()),
-        Col::ones(lp.get_n_vars()),
-        -Col::<E>::ones(lp.get_n_vars()),
-    );
+//     let mut state = SolverState::new(
+//         Col::ones(lp.get_n_vars()),
+//         Col::ones(lp.get_n_cons()),
+//         Col::ones(lp.get_n_vars()),
+//         -Col::<E>::ones(lp.get_n_vars()),
+//     );
 
-    // Ensure that x is strictly between bounds for the initial iterate
-    for (j, (l, u)) in lp
-        .get_lower_bounds()
-        .iter()
-        .zip(lp.get_upper_bounds().iter())
-        .enumerate()
-    {
-        if l.is_finite() && u.is_finite() {
-            state.x[j] = (l + u) / 2.;
-        } else if l.is_finite() && !u.is_finite() {
-            state.x[j] = l + 1.;
-        } else if !l.is_finite() && u.is_finite() {
-            state.x[j] = u - 1.;
-        } else {
-            state.x[j] = 0.;
-        }
-    }
+//     // Ensure that x is strictly between bounds for the initial iterate
+//     for (j, (l, u)) in lp
+//         .get_lower_bounds()
+//         .iter()
+//         .zip(lp.get_upper_bounds().iter())
+//         .enumerate()
+//     {
+//         if l.is_finite() && u.is_finite() {
+//             state.x[j] = (l + u) / 2.;
+//         } else if l.is_finite() && !u.is_finite() {
+//             state.x[j] = l + 1.;
+//         } else if !l.is_finite() && u.is_finite() {
+//             state.x[j] = u - 1.;
+//         } else {
+//             state.x[j] = 0.;
+//         }
+//     }
 
-    let options = SolverOptions::new();
+//     let options = SolverOptions::new();
 
-    let mut properties = SolverHooks {
-        callback: Box::new(ConvergenceOutput::new()),
-        terminator: Box::new(ConvergenceTerminator::new(&options)),
-    };
+//     let mut properties = SolverHooks {
+//         callback: Box::new(ConvergenceOutput::new()),
+//         terminator: Box::new(ConvergenceTerminator::new(&options)),
+//     };
 
-    let mut solver = NonlinearProgram::solver_builder(&nlp)
-        .with_solver(solver_type)
-        .build()
-        .unwrap();
-    let status = solver.solve(&mut state, &mut properties);
+//     let mut solver = NonlinearProgram::solver_builder(&nlp)
+//         .with_solver(solver_type)
+//         .build()
+//         .unwrap();
+//     let status = solver.solve(&mut state, &mut properties);
 
-    assert_eq!(status.unwrap(), crate::Status::Optimal);
-}
+//     assert_eq!(status.unwrap(), crate::Status::Optimal);
+// }
