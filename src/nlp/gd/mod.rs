@@ -1,11 +1,11 @@
 pub mod stepsize;
 
-use faer::{Col, ColRef, sparse::SparseColMat, unzip, zip};
+use faer::{Col, ColRef, prelude::Reborrow, sparse::SparseColMat, unzip, zip};
 use macros::{explicit_options, use_option};
 use problemo::Problem;
 
 use crate::{
-    E, I, IterativeSolver, OptimizationProgram, SolverOptions,
+    E, I, IterativeSolver, OptimizationProgram, Solver, SolverHooks, SolverOptions,
     nlp::{NLPSolver, NonlinearProgram, gd::stepsize::StepSize},
     state::{self, SolverState, Status, View},
 };
@@ -97,16 +97,16 @@ impl<'a, SS: StepSize> GradientDescent<'a, SS> {
     fn iterate(&mut self, view: &mut View<NonlinearProgram, Workspace>) -> Result<Status, Problem> {
         // Update the workspace
         let View {
-            program: _program,
+            program,
             state,
             work,
         } = view; // Destructure to access program and state
 
-        work.update(self.nlp, &state.vars.x(), &state.vars.y());
+        work.update(program, &state.vars.x(), &state.vars.y());
 
         state.delta.dx_mut().copy_from(-&work.dL); // Store the primal gradient in the delta for potential use in line search or diagnostics
         state.delta.dy_mut().copy_from(&work.g); // Store the constraint violation in the delta for potential use in line search or diagnostics
-        let (primal_step, dual_step) = self.step.compute(&self.nlp, &state, work);
+        let (primal_step, dual_step) = { self.step.compute(program, state, work) };
 
         state.vars.update(primal_step, dual_step, &state.delta);
 
@@ -148,7 +148,6 @@ impl<'a, SS: StepSize> NLPSolver<'a> for GradientDescent<'a, SS> {
 }
 
 impl<'a, SS: StepSize> IterativeSolver for GradientDescent<'a, SS> {
-    type Program = NonlinearProgram;
     type Workspace = Workspace;
 
     fn get_max_iterations(&self) -> usize {
@@ -159,8 +158,24 @@ impl<'a, SS: StepSize> IterativeSolver for GradientDescent<'a, SS> {
         }
     }
 
-    fn iterate(&mut self, view: &mut View<NonlinearProgram, Workspace>) -> Result<Status, Problem> {
+    fn iterate(
+        &mut self,
+        view: &mut View<NonlinearProgram, Self::Workspace>,
+    ) -> Result<Status, Problem> {
         self.iterate(view)
+    }
+}
+
+impl<'a, SS: StepSize> Solver for GradientDescent<'a, SS> {
+    type Program = NonlinearProgram;
+
+    fn solve(
+        &mut self,
+        program: &Self::Program,
+        state: &mut SolverState,
+        hooks: &mut SolverHooks,
+    ) -> Result<Status, Problem> {
+        self.solve_impl(program, state, hooks)
     }
 }
 
@@ -230,7 +245,7 @@ mod tests {
 
         let mut gd_solver = GradientDescent::<ConstantStepSize>::new(&simple_nlp, &options);
         let result = gd_solver
-            .optimize(&simple_nlp, &mut state, &mut properties)
+            .solve(&simple_nlp, &mut state, &mut properties)
             .unwrap();
         assert_eq!(result, Status::Optimal);
         assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
@@ -251,7 +266,7 @@ mod tests {
 
         let mut gd_solver = GradientDescent::<LinearDecayStepSize>::new(&simple_nlp, &options);
         let result = gd_solver
-            .optimize(&simple_nlp, &mut state, &mut properties)
+            .solve(&simple_nlp, &mut state, &mut properties)
             .unwrap();
         assert_eq!(result, Status::Optimal);
         assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
@@ -281,7 +296,7 @@ mod tests {
 
         let mut gd_solver = GradientDescent::<BarzilaiBorwein>::new(&simple_nlp, &options);
         let result = gd_solver
-            .optimize(&simple_nlp, &mut state, &mut properties)
+            .solve(&simple_nlp, &mut state, &mut properties)
             .unwrap();
         assert_eq!(result, Status::Optimal);
         assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
@@ -302,7 +317,7 @@ mod tests {
 
         let mut gd_solver = GradientDescent::<ArmijoRule>::new(&simple_nlp, &options);
         let result = gd_solver
-            .optimize(&simple_nlp, &mut state, &mut properties)
+            .solve(&simple_nlp, &mut state, &mut properties)
             .unwrap();
         assert_eq!(result, Status::Optimal);
         assert!((state.variables().x()[0] - 1.0).abs() < 1e-3);
